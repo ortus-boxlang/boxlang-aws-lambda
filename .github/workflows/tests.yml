@@ -1,4 +1,4 @@
-name: @MODULE_NAME@ Test Suites
+name: BoxLang AWS Lambda Runtime Test Suites
 
 # We are a reusable Workflow only
 on:

@@ -12,5 +12,6 @@ build/**
 .DS_Store
 
 ### BOXLANG ###
+grapher/**
 /libs/
 src/test/resources/libs/

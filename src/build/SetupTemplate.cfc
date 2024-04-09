@@ -39,7 +39,7 @@ component {
 		command( "tokenReplace" )
 			.params(
 				path        = "/#variables.cwd#/**",
-				token       = "@MODULE_NAME@",
+				token       = "BoxLang AWS Lambda Runtime",
 				replacement = moduleName
 			)
 			.run();
@@ -47,7 +47,7 @@ component {
 		command( "tokenReplace" )
 			.params(
 				path        = "/#variables.cwd#/**",
-				token       = "@MODULE_SLUG@",
+				token       = "bx-aws-lambda",
 				replacement = moduleSlug
 			)
 			.run();
@@ -55,7 +55,7 @@ component {
 		command( "tokenReplace" )
 			.params(
 				path        = "/#variables.cwd#/**",
-				token       = "@MODULE_DESCRIPTION@",
+				token       = "The Official BoxLang Runtime for AWS Lambda",
 				replacement = moduleDescription
 			)
 			.run();

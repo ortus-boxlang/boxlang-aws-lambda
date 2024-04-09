@@ -1,4 +1,4 @@
-# ⚡︎ BoxLang Module: @MODULE_NAME@
+# ⚡︎ BoxLang AWS Lambda Runtime
 
 ```
 |:------------------------------------------------------:|
@@ -16,106 +16,78 @@
 
 <p>&nbsp;</p>
 
-This template can be used to create Ortus based BoxLang Modules.  To use, just click the `Use this Template` button in the github repository: https://github.com/boxlang-modules/module-template and run the setup task from where you cloned it.
+## Welcome to the BoxLang AWS Lambda Runtime
 
-```bash
-box task run taskFile=src/build/SetupTemplate
+This repository contains the AWS Lambda Runtime for the BoxLang language.  This runtime allows you to run BoxLang code in AWS Lambda functions.  The runtime is built using the AWS Lambda Custom Runtime API and the BoxLang interpreter.
+
+## Usage
+
+To use it, you need to create a Lambda function and specify `Java 21` as the runtime.  The class that executes your BoxLang code is `ortus.boxlang.runtime.aws.LambdaRunner`. By convention it will execute a `Lambda.bx` file in the root of the Lambda function, via the `run()` method.  The method signature can look like this:
+
+```java
+// Lambda.bx
+class{
+
+	function run( event, context, response ){
+		// Your code here
+	}
+
+}
 ```
 
-The `SetupTemplate` task will ask you for your module name, id and description and configure the template for you! Enjoy!
+- The `event` parameter is the event data that is passed to the Lambda function as a `Struct`.
+- The `context` parameter is the context object that is passed to the Lambda function. This matches the AWS Lambda context object: `com.amazonaws.services.lambda.runtime.Context`.
+- The `response` parameter is the response object that is passed to the Lambda function.
 
-## Directory Structure
+### Response Struct
 
-Here is a brief overview of the directory structure:
+The `response` object is a `Struct` that you can use to set the response data.  The `response` object has the following keys:
 
-* `.github/workflows` - These are the github actions to test and build the module via CI
-* `build` - This is a temporary non-sourced folder that contains the build assets for the module that gradle produces
-* `gradle` - The gradle wrapper and configuration
-* `src` - Where your module source code lives
-* `.cfformat.json` - A CFFormat using the Ortus Standards
-* `.editorconfig` - Smooth consistency between editors
-* `.gitattributes` - Git attributes
-* `.gitignore` - Basic ignores. Modify as needed.
-* `.markdownlint.json` - A linting file for markdown docs
-* `.ortus-java-style.xml` - Ortus Java Style for IntelliJ, VScode, Eclipse.
-* `box.json` - The box.json for your module used to publish to ForgeBox
-* `build.gradle` - The gradle build file for the module
-* `changelog.md` - A nice changelog tracking file
-* `CONTRIBUTING.md` - A contribution guideline
-* `gradlew` - The gradle wrapper
-* `gradlew.bat` - The gradle wrapper for windows
-* `ModuleConfig.cfc` - Your module's configuration. Modify as needed.
-* `readme.md` - Your module's readme. Modify as needed.
-* `settings.gradle` - The gradle settings file
+- `statusCode` : The HTTP status code for the response.
+- `headers` : A `Struct` of headers to send in the response.
+- `body` : The body of the response, which can be anything.
 
-Here is a brief overview of the source directory structure:
+The BoxLang lambda runner will return the `response` object as the response to the Lambda function as a JSON object.
 
-* `build` - Build scripts and assets
-* `main` - The main module source code
-  * `bx` - The BoxLang source code
-  * `ModuleConfig.bx` - The BoxLang module configuration
-    * `bifs` - BoxLang built-in functions
-    * `components` - BoxLang components
-    * `config` - BoxLang configuration, schedulers, etc.
-    * `interceptors` - BoxLang interceptors
-    * `libs` - Java libraries to use that are NOT managed by gradle
-    * `models` - BoxLang models
-  * `java` - Java source code
-  * `resources` - Resources for the module placed in final jar
-* `test`
-  * `bx` - The BoxLang test code
-  * `java` - Java test code
-  * `resources` - Resources for testing
-    * `libs` - BoxLang binary goes here for now.
+### Custom Lambda Function
 
-## Project Properties
+If you don't want to use the convention of `Lambda.bx` then you can setup an environment variable called `BOXLANG_LAMBDA_CLASS` with the full path to the BoxLang class that will execute your code.  The class must have a `run()` method that matches the signature above.
 
-The project name is defined in the `settings.gradle` file.  You can change it there.
-The project version, BoxLang Version and JDK version is defined in the `build.gradle` file.  You can change it there.
+### Debug Mode
 
-## Gradle Tasks
+You can enable debug mode by setting the environment variable `BOXLANG_LAMBDA_DEBUG` to `true`.  This will output debug information to the Lambda logs.
 
-Before you get started, you need to run the `downloadBoxLang` task in order to download the latest BoxLang binary until we publish to Maven.
+### Example
 
-```bash
-gradle downloadBoxLang
+Here is an example of a simple Lambda function that returns a `Hello World` response:
+
+```java
+// Lambda.bx
+class{
+
+	function run( event, context, response ){
+		// response.statusCode = 200; set by default
+		response.headers = {
+			"Content-Type" : "text/plain"
+		};
+		response.body = "Hello World";
+	}
+
+}
 ```
 
-This will store the binary under `/src/test/resources/libs` for you to use in your tests and compiler. Here are some basic tasks
+However, if you don't even want to deal with the `response` struct, you can just use a return and whatever you return will be placed for you in the `response.body`.
 
+```java
+// Lambda.bx
+class{
 
-| Task                | Description                                                                                                        	|
-|---------------------|---------------------------------------------------------------------------------------------------------------------|
-| `build`             | The default lifecycle task that triggers the build process, including tasks like `clean`, `assemble`, and others. 	|
-| `clean`             | Deletes the `build` folders. It helps ensure a clean build by removing any previously generated artifacts.			|
-| `compileJava`       | Compiles Java source code files located in the `src/main/java` directory											|
-| `compileTestJava`   | Compiles Java test source code files located in the `src/test/java` directory										|
-| `dependencyUpdates` | Checks for updated versions of all dependencies															 			|
-| `downloadBoxLang`   | Downloads the latest BoxLang binary for testing																		|
-| `jar`               | Packages your project's compiled classes and resources into a JAR file `build/libs` folder							|
-| `javadoc`           | Generates the Javadocs for your project and places them in the `build/docs/javadoc` folder							|
-| `serviceLoader`     | Generates the ServiceLoader file for your project																	|
-| `spotlessApply`     | Runs the Spotless plugin to format the code																			|
-| `spotlessCheck`     | Runs the Spotless plugin to check the formatting of the code														|
-| `tasks`			  | Show all the available tasks in the project																			|
-| `test`              | Executes the unit tests in your project and produces the reports in the `build/reports/tests` folder				|
+	function run( event, context ){
+		return "Hello World";
+	}
 
-## Tests
-
-Please use the `src/test` folder for your unit tests.  You can either test using TestBox o JUnit if it's Java.
-
-## Github Actions Automation
-
-The github actions will clone, test, package, deploy your module to ForgeBox and the Ortus S3 accounts for API Docs and Artifacts.  So please make sure the following environment variables are set in your repository.
-
-> Please note that most of them are already defined at the org level
-
-* `FORGEBOX_TOKEN` - The Ortus ForgeBox API Token
-* `AWS_ACCESS_KEY` - The travis user S3 account
-* `AWS_ACCESS_SECRET` - The travis secret S3
-
-> Please contact the admins in the `#infrastructure` channel for these credentials if needed
-
+}
+```
 
 ## Ortus Sponsors
 

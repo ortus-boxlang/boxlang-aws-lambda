@@ -1,18 +1,18 @@
 {
-    "name":"@MODULE_NAME@",
+    "name":"BoxLang AWS Lambda Runtime",
     "version":"@build.version@+@build.number@",
-    "location"  : "https://downloads.ortussolutions.com/ortussolutions/boxlang-modules/@MODULE_SLUG@/@build.version@/@MODULE_SLUG@-@build.version@.zip",
+    "location"  : "https://downloads.ortussolutions.com/ortussolutions/boxlang-modules/bx-aws-lambda/@build.version@/bx-aws-lambda-@build.version@.zip",
     "author":"Ortus Solutions",
-    "homepage":"https://github.com/boxlang-modules/@MODULE_SLUG@",
-    "documentation":"https://github.com/boxlang-modules/@MODULE_SLUG@",
+    "homepage":"https://github.com/boxlang-modules/bx-aws-lambda",
+    "documentation":"https://github.com/boxlang-modules/bx-aws-lambda",
     "repository":{
         "type":"git",
-        "URL":"https://github.com/boxlang-modules/@MODULE_SLUG@"
+        "URL":"https://github.com/boxlang-modules/bx-aws-lambda"
     },
-    "bugs":"https://github.com/boxlang-modules/@MODULE_SLUG@/issues",
-    "slug":"@MODULE_SLUG@",
+    "bugs":"https://github.com/boxlang-modules/bx-aws-lambda/issues",
+    "slug":"bx-aws-lambda",
     "shortDescription":"Module template for BoxLang modules",
-    "type":"boxlang-modules",
+    "type":"boxlang-runtimes",
     "keywords":[
         "boxlang"
     ],
