@@ -89,6 +89,18 @@ class{
 }
 ```
 
+## Packaging
+
+In order to deploy your function to AWS Lambda, you need to package the runtime and your BoxLang code into a zip file.  The zip file should contain the following structure:
+
+```
+/lib
+  + Lambda.bx
+  + bx-aws-lambda-1.0.0-all.jar
+```
+
+
+
 ## Ortus Sponsors
 
 BoxLang is a professional open-source project and it is completely funded by the [community](https://patreon.com/ortussolutions) and [Ortus Solutions, Corp](https://www.ortussolutions.com).  Ortus Patreons get many benefits like a cfcasts account, a FORGEBOX Pro account and so much more.  If you are interested in becoming a sponsor, please visit our patronage page: [https://patreon.com/ortussolutions](https://patreon.com/ortussolutions)
