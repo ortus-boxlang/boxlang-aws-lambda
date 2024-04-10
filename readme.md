@@ -94,12 +94,12 @@ class{
 In order to deploy your function to AWS Lambda, you need to package the runtime and your BoxLang code into a zip file.  The zip file should contain the following structure:
 
 ```
++ Lambda.bx
 /lib
-  + Lambda.bx
   + bx-aws-lambda-1.0.0-all.jar
 ```
 
-
+That's it! Enjoy!
 
 ## Ortus Sponsors
 
