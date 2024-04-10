@@ -2,14 +2,14 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
 Description: An AWS Lambda application that calls the Lambda API.
 Resources:
-  function:
+  BoxLangTemplate:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: build/distributions/java17-examples.zip
-      Handler: example.HandlerIntegerJava17
+      CodeUri: ../build/distributions/bx-aws-lambda-test-1.0.0.zip
+      Handler: ortus.boxlang.runtime.aws.LambdaRunner
       Runtime: java17
-      Description: Java function
-      MemorySize: 2048
+      Description: BoxLang Function
+      MemorySize: 1024
       Timeout: 10
       # Function's execution role
       Policies:
@@ -18,3 +18,6 @@ Resources:
         - AWSXrayWriteOnlyAccess
         - AWSLambdaVPCAccessExecutionRole
       Tracing: Active
+      Environment:
+        Variables:
+          BOXLANG_LAMBDA_DEBUG: true

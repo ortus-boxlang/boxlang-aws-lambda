@@ -36,6 +36,7 @@ import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
 import ortus.boxlang.runtime.types.util.JSONUtil;
+import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
 
 /**
  * The BoxLang AWS Lambda Runner
@@ -65,9 +66,9 @@ import ortus.boxlang.runtime.types.util.JSONUtil;
 public class LambdaRunner implements RequestHandler<Map<String, String>, String> {
 
 	/**
-	 * The Lambda.bx file name by convention
+	 * The Lambda.bx file name by convention, which is where it's expanded by AWS Lambda
 	 */
-	public static final String	LAMBDA_CLASS	= "Lambda.bx";
+	public static final String	LAMBDA_CLASS	= "/var/task/Lambda.bx";
 
 	/**
 	 * The absolute path to the Lambda.bx file to execute
@@ -83,8 +84,8 @@ public class LambdaRunner implements RequestHandler<Map<String, String>, String>
 	 * Constructor
 	 */
 	public LambdaRunner() {
-		// By convention we look for a `Lambda.bx` file in the current directory
-		this( Path.of( System.getProperty( "user.dir" ), LAMBDA_CLASS ).toAbsolutePath(), false );
+		// Get a Path to the Lambda.bx file from the class loader
+		this( Path.of( LAMBDA_CLASS ).toAbsolutePath(), false );
 	}
 
 	/**
@@ -163,7 +164,7 @@ public class LambdaRunner implements RequestHandler<Map<String, String>, String>
 
 		// Startup the runtime
 		BoxRuntime	runtime		= BoxRuntime.getInstance( this.debugMode );
-		IBoxContext	boxContext	= runtime.getRuntimeContext();
+		IBoxContext	boxContext	= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
 
 		// Prep the response
 		IStruct		response	= Struct.of(
@@ -175,6 +176,7 @@ public class LambdaRunner implements RequestHandler<Map<String, String>, String>
 		IStruct		eventStruct	= Struct.fromMap( event );
 
 		try {
+
 			// Verify the Lambda.bx file
 			if ( !lambdaPath.toFile().exists() ) {
 				throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]" );
@@ -209,7 +211,9 @@ public class LambdaRunner implements RequestHandler<Map<String, String>, String>
 			return JSONUtil.getJSONBuilder()
 			    .with( Feature.PRETTY_PRINT_OUTPUT, Feature.WRITE_NULL_PROPERTIES )
 			    .asString( response );
-		} catch ( IOException e ) {
+		} catch (
+
+		IOException e ) {
 			throw new BoxRuntimeException( "Error converting response to JSON", e );
 		} finally {
 			runtime.shutdown();

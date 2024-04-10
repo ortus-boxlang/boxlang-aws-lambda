@@ -29,7 +29,7 @@ dependencies {
 	// Look for it in the local build directory
 	// You must run `./gradle build -x test` in the BoxLang project
     implementation files( 'src/test/resources/libs/boxlang-1.0.0-all.jar' )
-	implementation 'com.amazonaws:aws-lambda-java-core:1.2.1'
+	implementation 'com.amazonaws:aws-lambda-java-core:1.2.3'
     implementation 'org.slf4j:slf4j-nop:2.0.6'
 
     // Testing Dependencies
@@ -109,53 +109,14 @@ spotless {
     }
 }
 
-/**
- * Custom task that creates a build/module folders
- * - Copies the build/libs/BoxLangModuleTemplate-1.0.0-all.jar to build/module/libs/BoxLangModuleTemplate-1.0.0-all.jar
- * - Copies the src/main/bx/** to build/module/ folder.
- */
-task createModuleStructure(type: Copy) {
-    from( 'build/libs' ) {
-		include "${project.name}-${version}-all.jar"
-        into 'libs'
-    }
-    from( 'src/main/bx' ) {
-		include '**/*.bx'
-		// Token Replacements Go Here
-		filter( line -> line.replaceAll( '@build.version@', project.version ) )
-		if( project.branch == "development" ){
-			filter( line -> line.replaceAll( '\\+@build.number@', '-SNAPSHOT' ) )
-		} else {
-			filter( line -> line.replaceAll( '@build.number@', project.buildID ) )
-		}
-    }
-    from( '.' ) {
-        include 'box.json'
-		include 'readme.md'
-		include 'changelog.md'
-		// Token Replacements Go Here
-		filter( line -> line.replaceAll( '@build.version@', project.version ) )
-		if( project.branch == "development" ){
-			filter( line -> line.replaceAll( '\\+@build.number@', '-SNAPSHOT' ) )
-		} else {
-			filter( line -> line.replaceAll( '@build.number@', project.buildID ) )
-		}
-    }
-
-    destinationDir = file( 'build/module' )
+task buildTestZip( type: Zip ) {
+	archiveFileName = "${project.name}-test-${version}.zip"
+	from 'src/test/resources/Lambda.bx'
+	into( 'lib' ) {
+		from shadowJar.outputs.files
+	}
 }
-task zipModuleStructure( type: Zip ) {
-    group "distribution"
-    from createModuleStructure.destinationDir
-    archiveFileName = "${project.name}-${version}.zip"
-    destinationDirectory = file( "$buildDir/distributions" )
-    // Output that the module has been zippped
-    doLast {
-        println "+ Module has been zipped to the distribution folder"
-    }
-}
-createModuleStructure.finalizedBy( zipModuleStructure )
-//shadowJar.finalizedBy( createModuleStructure )
+shadowJar.finalizedBy( buildTestZip )
 
 test {
     useJUnitPlatform()
