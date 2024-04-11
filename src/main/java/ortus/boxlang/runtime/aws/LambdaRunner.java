@@ -17,14 +17,12 @@
  */
 package ortus.boxlang.runtime.aws;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.fasterxml.jackson.jr.ob.JSON.Feature;
 
 import ortus.boxlang.runtime.BoxRuntime;
 import ortus.boxlang.runtime.context.IBoxContext;
@@ -35,7 +33,6 @@ import ortus.boxlang.runtime.scopes.Key;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
-import ortus.boxlang.runtime.types.util.JSONUtil;
 import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
 
 /**
@@ -63,12 +60,12 @@ import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
  * <p>
  * The runtime is started up and shutdown for each request.
  */
-public class LambdaRunner implements RequestHandler<Map<String, String>, String> {
+public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, ?>> {
 
 	/**
 	 * The Lambda.bx file name by convention, which is where it's expanded by AWS Lambda
 	 */
-	public static final String	LAMBDA_CLASS	= "/var/task/Lambda.bx";
+	public static final String	LAMBDA_CLASS	= "/var/task/Lambda2.bx";
 
 	/**
 	 * The absolute path to the Lambda.bx file to execute
@@ -153,8 +150,7 @@ public class LambdaRunner implements RequestHandler<Map<String, String>, String>
 	 * @return The response as a JSON string
 	 *
 	 */
-	@Override
-	public String handleRequest( Map<String, String> event, Context context ) {
+	public Map<?, ?> handleRequest( Map<String, Object> event, Context context ) {
 		LambdaLogger logger = context.getLogger();
 
 		// Log the incoming event
@@ -162,58 +158,57 @@ public class LambdaRunner implements RequestHandler<Map<String, String>, String>
 			logger.log( "Lambda firing with incoming event: " + event );
 		}
 
+		// Prep the response
+		IStruct		response	= Struct.of(
+		    "statusCode", 200,
+		    "headers", Struct.of(
+		        "Content-Type", "application/json",
+		        "Access-Control-Allow-Origin", "*"
+		    ),
+		    "body", ""
+		);
+
 		// Startup the runtime
 		BoxRuntime	runtime		= BoxRuntime.getInstance( this.debugMode );
 		IBoxContext	boxContext	= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
 
-		// Prep the response
-		IStruct		response	= Struct.of(
-		    "statusCode", 200,
-		    "headers", new Struct(),
-		    "body", "" );
-
 		// Prep the incoming event as a struct
 		IStruct		eventStruct	= Struct.fromMap( event );
 
+		// Verify the Lambda.bx file
+		if ( !lambdaPath.toFile().exists() ) {
+			throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]" );
+		}
+
+		// Compile + Get the Lambda Class
+		IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
+		    RunnableLoader.getInstance().loadClass( lambdaPath, this.getClass().getPackageName(), boxContext )
+		)
+		    .invokeConstructor( boxContext )
+		    .getTargetInstance();
+
+		// Verify the run method
+		if ( !lambda.getThisScope().containsKey( Key.run ) ) {
+			throw new BoxRuntimeException( "Lambda.bx file does not contain a `run` method" );
+		}
+
+		// Invoke the run method
+		var results = lambda.dereferenceAndInvoke(
+		    boxContext,
+		    Key.run,
+		    new Object[] { eventStruct, context, response },
+		    false
+		);
+
 		try {
-
-			// Verify the Lambda.bx file
-			if ( !lambdaPath.toFile().exists() ) {
-				throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]" );
-			}
-
-			// Compile + Get the Lambda Class
-			IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
-			    RunnableLoader.getInstance().loadClass( lambdaPath, this.getClass().getPackageName(), boxContext )
-			)
-			    .invokeConstructor( boxContext )
-			    .getTargetInstance();
-
-			// Verify the run method
-			if ( !lambda.getThisScope().containsKey( Key.run ) ) {
-				throw new BoxRuntimeException( "Lambda.bx file does not contain a `run` method" );
-			}
-
-			// Invoke the run method
-			var results = lambda.dereferenceAndInvoke(
-			    boxContext,
-			    Key.run,
-			    new Object[] { eventStruct, context, response },
-			    false
-			);
-
 			// If results is not null use it as the response
 			if ( results != null ) {
 				response.put( "body", results );
 			}
 
 			// Response back to JSON
-			return JSONUtil.getJSONBuilder()
-			    .with( Feature.PRETTY_PRINT_OUTPUT, Feature.WRITE_NULL_PROPERTIES )
-			    .asString( response );
-		} catch (
-
-		IOException e ) {
+			return response;
+		} catch ( Throwable e ) {
 			throw new BoxRuntimeException( "Error converting response to JSON", e );
 		} finally {
 			runtime.shutdown();
