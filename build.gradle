@@ -87,7 +87,7 @@ shadowJar {
 	exclude "org/jboss/**"
 	exclude "org/wildfly/**"
 	exclude "org/xnio/**"
-	exclude "dump/html/**"
+	// exclude "dump/html/**"
 	exclude "ortus/boxlang/debugger/**"
 	exclude "org/antlr/v4/gui/**"
 	exclude "org/antlr/v4/gui/**"
@@ -116,6 +116,15 @@ task buildTestZip( type: Zip ) {
 	}
 }
 shadowJar.finalizedBy( buildTestZip )
+
+task buildMainZip( type: Zip ) {
+	archiveFileName = "${project.name}-${version}.zip"
+	from 'src/main/resources/Lambda.bx'
+	into( 'lib' ) {
+		from shadowJar.outputs.files
+	}
+}
+shadowJar.finalizedBy( buildMainZip )
 
 test {
     useJUnitPlatform()
