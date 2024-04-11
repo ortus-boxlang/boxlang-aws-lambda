@@ -45,7 +45,7 @@ public class LambdaRunnerTest {
 		LambdaRunner	runner		= new LambdaRunner( invalidPath, true );
 		// Create a AWS Lambda Context
 		Context			context		= new TestContext();
-		var				event		= new HashMap<String, String>();
+		var				event		= new HashMap<String, Object>();
 
 		// Expect BoxRuntimeException
 		assertThrows( BoxRuntimeException.class, () -> runner.handleRequest( event, context ) );
@@ -59,7 +59,7 @@ public class LambdaRunnerTest {
 		LambdaRunner	runner		= new LambdaRunner( validPath, true );
 		// Create a AWS Lambda Context
 		Context			context		= new TestContext();
-		var				event		= new HashMap<String, String>();
+		var				event		= new HashMap<String, Object>();
 		// Add some mock data to the event
 		event.put( "name", "Ortus Solutions" );
 		event.put( "when", Instant.now().toString() );
