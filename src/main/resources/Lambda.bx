@@ -1,0 +1,11 @@
+class{
+
+	function run( event, context, response ){
+		response.body = {
+				"error": false,
+				"messages": [],
+				"data": "====> Incoming event " & event.toString()
+			};
+		response.statusCode = 200;
+	}
+}
