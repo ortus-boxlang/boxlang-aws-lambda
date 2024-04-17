@@ -26,6 +26,7 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 
 import ortus.boxlang.runtime.BoxRuntime;
 import ortus.boxlang.runtime.context.IBoxContext;
+import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
 import ortus.boxlang.runtime.interop.DynamicObject;
 import ortus.boxlang.runtime.runnables.IClassRunnable;
 import ortus.boxlang.runtime.runnables.RunnableLoader;
@@ -33,16 +34,19 @@ import ortus.boxlang.runtime.scopes.Key;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
-import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
 
 /**
  * The BoxLang AWS Lambda Runner
  * <p>
- * This class is the entry point for the AWS Lambda runtime. It is responsible for
- * handling the incoming request, invoking the Lambda.bx file, and returning the response.
+ * This class is the entry point for the AWS Lambda runtime. It is responsible
+ * for
+ * handling the incoming request, invoking the Lambda.bx file, and returning the
+ * response.
  * <p>
- * The Lambda.bx file is expected to contain a `run` method that accepts the incoming event,
- * the AWS Lambda context, and the response. The response is expected to be a struct with
+ * The Lambda.bx file is expected to contain a `run` method that accepts the
+ * incoming event,
+ * the AWS Lambda context, and the response. The response is expected to be a
+ * struct with
  * the following
  * <ul>
  * <li>statusCode: The HTTP status code</li>
@@ -50,7 +54,8 @@ import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
  * <li>body: The response body</li>
  * </ul>
  * <p>
- * The Lambda.bx file is expected to be in the current directory and named `Lambda.bx`.
+ * The Lambda.bx file is expected to be in the current directory and named
+ * `Lambda.bx`.
  * <p>
  * The incoming event is expected to be a map of strings.
  * <p>
@@ -63,9 +68,10 @@ import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
 public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, ?>> {
 
 	/**
-	 * The Lambda.bx file name by convention, which is where it's expanded by AWS Lambda
+	 * The Lambda.bx file name by convention, which is where it's expanded by AWS
+	 * Lambda
 	 */
-	public static final String	LAMBDA_CLASS	= "/var/task/Lambda2.bx";
+	public static final String	LAMBDA_CLASS	= "/var/task/Lambda.bx";
 
 	/**
 	 * The absolute path to the Lambda.bx file to execute
@@ -95,7 +101,8 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		this.lambdaPath	= lambdaPath;
 		this.debugMode	= debugMode;
 
-		// Check if there is a BOXLANG_LAMBDA_CLASS environment variable and use that instead
+		// Check if there is a BOXLANG_LAMBDA_CLASS environment variable and use that
+		// instead
 		if ( System.getenv( "BOXLANG_LAMBDA_CLASS" ) != null ) {
 			this.lambdaPath = Path.of( System.getenv( "BOXLANG_LAMBDA_CLASS" ) ).toAbsolutePath();
 		}
@@ -163,53 +170,48 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		    "statusCode", 200,
 		    "headers", Struct.of(
 		        "Content-Type", "application/json",
-		        "Access-Control-Allow-Origin", "*"
-		    ),
-		    "body", ""
-		);
+		        "Access-Control-Allow-Origin", "*" ),
+		    "body", "" );
 
 		// Startup the runtime
 		BoxRuntime	runtime		= BoxRuntime.getInstance( this.debugMode );
 		IBoxContext	boxContext	= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
 
-		// Prep the incoming event as a struct
-		IStruct		eventStruct	= Struct.fromMap( event );
-
-		// Verify the Lambda.bx file
-		if ( !lambdaPath.toFile().exists() ) {
-			throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]" );
-		}
-
-		// Compile + Get the Lambda Class
-		IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
-		    RunnableLoader.getInstance().loadClass( lambdaPath, this.getClass().getPackageName(), boxContext )
-		)
-		    .invokeConstructor( boxContext )
-		    .getTargetInstance();
-
-		// Verify the run method
-		if ( !lambda.getThisScope().containsKey( Key.run ) ) {
-			throw new BoxRuntimeException( "Lambda.bx file does not contain a `run` method" );
-		}
-
-		// Invoke the run method
-		var results = lambda.dereferenceAndInvoke(
-		    boxContext,
-		    Key.run,
-		    new Object[] { eventStruct, context, response },
-		    false
-		);
-
 		try {
+			// Prep the incoming event as a struct
+			IStruct eventStruct = Struct.fromMap( event );
+
+			// Verify the Lambda.bx file
+			if ( !lambdaPath.toFile().exists() ) {
+				throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]" );
+			}
+
+			// Compile + Get the Lambda Class
+			IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
+			    RunnableLoader.getInstance().loadClass( lambdaPath, this.getClass().getPackageName(), boxContext ) )
+			    .invokeConstructor( boxContext )
+			    .getTargetInstance();
+
+			// Verify the run method
+			if ( !lambda.getThisScope().containsKey( Key.run ) ) {
+				throw new BoxRuntimeException( "Lambda.bx file does not contain a `run` method" );
+			}
+
+			// Invoke the run method
+			var results = lambda.dereferenceAndInvoke(
+			    boxContext,
+			    Key.run,
+			    new Object[] { eventStruct, context, response },
+			    false
+			);
+
 			// If results is not null use it as the response
 			if ( results != null ) {
 				response.put( "body", results );
 			}
 
-			// Response back to JSON
+			// Lambdas marshall the Map to a JSON string
 			return response;
-		} catch ( Throwable e ) {
-			throw new BoxRuntimeException( "Error converting response to JSON", e );
 		} finally {
 			runtime.shutdown();
 		}
