@@ -22,7 +22,7 @@ This repository contains the AWS Lambda Runtime for the BoxLang language. This r
 
 ## Usage
 
-To use it, you need to create a Lambda function and specify `Java 21` as the runtime. The class that executes your BoxLang code is `ortus.boxlang.runtime.aws.LambdaRunner`. By convention it will execute a `Lambda.bx` file in the root of the Lambda function, via the `run()` method. The method signature can look like this:
+To use it, you need to create a Lambda function and specify `Java 21` as the runtime. The class that executes your BoxLang code is `ortus.boxlang.runtime.aws.LambdaRunner`. By convention it will execute a `Lambda.bx` file in the root (`/var/task/Lambda.bx`) of the Lambda function, via the `run()` method. The method signature can look like this:
 
 ```java
 // Lambda.bx
@@ -35,17 +35,17 @@ class{
 }
 ```
 
--   The `event` parameter is the event data that is passed to the Lambda function as a `Struct`.
--   The `context` parameter is the context object that is passed to the Lambda function. This matches the AWS Lambda context object: `com.amazonaws.services.lambda.runtime.Context`.
--   The `response` parameter is the response object that is passed to the Lambda function.
+- The `event` parameter is the event data that is passed to the Lambda function as a `Struct`.
+- The `context` parameter is the context object that is passed to the Lambda function. This matches the AWS Lambda context object: `com.amazonaws.services.lambda.runtime.Context`.
+- The `response` parameter is the response object that is passed to the Lambda function.
 
 ### Response Struct
 
 The `response` object is a `Struct` that you can use to set the response data. The `response` object has the following keys:
 
--   `statusCode` : The HTTP status code for the response.
--   `headers` : A `Struct` of headers to send in the response.
--   `body` : The body of the response, which can be anything.
+- `statusCode` : The HTTP status code for the response.
+- `headers` : A `Struct` of headers to send in the response.
+- `body` : The body of the response, which can be anything.
 
 The BoxLang lambda runner will return the `response` object as the response to the Lambda function as a JSON object.
 
@@ -128,7 +128,8 @@ In order to deploy your function to AWS Lambda, you need to package the runtime 
   + bx-aws-lambda-1.0.0-all.jar
 ```
 
-That's it! Enjoy!
+You can use our source template here: https://github.com/ortus-solutions-private/bx-aws-lambda-template
+to give you a head start in building your serverless applications.
 
 ## Ortus Sponsors
 
