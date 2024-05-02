@@ -19,7 +19,7 @@ on:
         type: boolean
 
 env:
-  MODULE_ID: bx-aws-lambda
+  MODULE_ID: boxlang-aws-lambda
   SNAPSHOT: ${{ inputs.snapshot || false }}
   JDK: 17
   GRADLE: 8.7

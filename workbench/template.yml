@@ -5,7 +5,7 @@ Resources:
   BoxLangTemplate:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: ../build/distributions/bx-aws-lambda-test-1.0.0.zip
+      CodeUri: ../build/distributions/boxlang-aws-lambda-test-1.0.0.zip
       Handler: ortus.boxlang.runtime.aws.LambdaRunner
       Runtime: java17
       Description: BoxLang Function

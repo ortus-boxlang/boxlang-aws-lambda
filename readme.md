@@ -125,10 +125,10 @@ In order to deploy your function to AWS Lambda, you need to package the runtime 
 ```
 + Lambda.bx
 /lib
-  + bx-aws-lambda-1.0.0-all.jar
+  + boxlang-aws-lambda-1.0.0-all.jar
 ```
 
-You can use our source template here: https://github.com/ortus-solutions-private/bx-aws-lambda-template
+You can use our source template here: https://github.com/ortus-solutions-private/boxlang-aws-lambda-template
 to give you a head start in building your serverless applications.
 
 ## Ortus Sponsors
