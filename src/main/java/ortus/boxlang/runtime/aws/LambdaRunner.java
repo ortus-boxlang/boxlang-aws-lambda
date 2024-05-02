@@ -34,6 +34,7 @@ import ortus.boxlang.runtime.scopes.Key;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
+import ortus.boxlang.runtime.util.ResolvedFilePath;
 
 /**
  * The BoxLang AWS Lambda Runner
@@ -188,7 +189,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 
 			// Compile + Get the Lambda Class
 			IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
-			    RunnableLoader.getInstance().loadClass( lambdaPath, this.getClass().getPackageName(), boxContext ) )
+			    RunnableLoader.getInstance().loadClass( ResolvedFilePath.of( lambdaPath ), boxContext ) )
 			    .invokeConstructor( boxContext )
 			    .getTargetInstance();
 
