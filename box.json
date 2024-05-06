@@ -1,46 +1,46 @@
 {
-    "name": "BoxLang AWS Lambda Runtime",
-    "version": "@build.version@+@build.number@",
-    "location": "https://downloads.ortussolutions.com/ortussolutions/boxlang-modules/boxlang-aws-lambda/@build.version@/boxlang-aws-lambda-@build.version@.zip",
-    "author": "Ortus Solutions",
-    "homepage": "https://github.com/boxlang-modules/boxlang-aws-lambda",
-    "documentation": "https://github.com/boxlang-modules/boxlang-aws-lambda",
-    "repository": {
-        "type": "git",
-        "URL": "https://github.com/boxlang-modules/boxlang-aws-lambda"
-    },
-    "bugs": "https://github.com/boxlang-modules/boxlang-aws-lambda/issues",
-    "slug": "boxlang-aws-lambda",
-    "shortDescription": "Module template for BoxLang modules",
-    "type": "boxlang-runtimes",
-    "keywords": [
-        "boxlang"
-    ],
-    "private": false,
-    "license": [
-        {
-            "type": "Apache-2.0",
-            "URL": "https://www.apache.org/licenses/LICENSE-2.0"
-        }
-    ],
-    "devDependencies": {
-        "commandbox-cfformat": "*",
-        "commandbox-docbox": "*",
-        "commandbox-dotenv": "*",
-        "commandbox-cfconfig": "*",
-        "testbox": "*"
-    },
-    "ignore": [
-        "**/.*",
-        "settings.gradle",
-        "gradlew.bat",
-        "gradlew",
-        "build.gradle",
-        "/src/**",
-        "gradle/**"
-    ],
-    "scripts": {
-        "setupTemplate": "task run taskFile=src/build/SetupTemplate.cfc",
-        "onRelease": "publish"
-    }
+	"name": "BoxLang AWS Lambda Runtime",
+	"version": "@build.version@+@build.number@",
+	"location": "https://downloads.ortussolutions.com/ortussolutions/boxlang-runtimes/boxlang-aws-lambda/@build.version@/boxlang-aws-lambda-@build.version@.zip",
+	"author": "Ortus Solutions",
+	"homepage": "https://github.com/ortus-boxlang/boxlang-aws-lambda",
+	"documentation": "https://github.com/ortus-boxlang/boxlang-aws-lambda",
+	"repository": {
+		"type": "git",
+		"URL": "https://github.com/ortus-boxlang/boxlang-aws-lambda"
+	},
+	"bugs": "https://github.com/ortus-boxlang/boxlang-aws-lambda/issues",
+	"slug": "boxlang-aws-lambda",
+	"shortDescription": "Module template for BoxLang modules",
+	"type": "boxlang-runtimes",
+	"keywords": [
+		"boxlang"
+	],
+	"private": false,
+	"license": [
+		{
+			"type": "Apache-2.0",
+			"URL": "https://www.apache.org/licenses/LICENSE-2.0"
+		}
+	],
+	"devDependencies": {
+		"commandbox-cfformat": "*",
+		"commandbox-docbox": "*",
+		"commandbox-dotenv": "*",
+		"commandbox-cfconfig": "*",
+		"testbox": "*"
+	},
+	"ignore": [
+		"**/.*",
+		"settings.gradle",
+		"gradlew.bat",
+		"gradlew",
+		"build.gradle",
+		"/src/**",
+		"gradle/**"
+	],
+	"scripts": {
+		"setupTemplate": "task run taskFile=src/build/SetupTemplate.cfc",
+		"onRelease": "publish"
+	}
 }
