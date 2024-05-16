@@ -78,13 +78,10 @@ jar {
 }
 shadowJar {
     destinationDirectory = file( "build/distributions" )
-	exclude "schema/**"
 	exclude "io/undertow/**"
 	exclude "org/jboss/**"
 	exclude "org/wildfly/**"
 	exclude "org/xnio/**"
-	// exclude "dump/html/**"
-	exclude "ortus/boxlang/debugger/**"
 	exclude "org/antlr/v4/gui/**"
 	exclude "org/antlr/v4/gui/**"
 }
