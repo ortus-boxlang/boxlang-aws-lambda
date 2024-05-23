@@ -85,6 +85,16 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	private Boolean				debugMode		= false;
 
 	/**
+	 * Config path to your own custom boxlang.json file
+	 */
+	private String				configPath		= null;
+
+	/**
+	 * Lambda Root
+	 */
+	private String				lambdaRoot		= "";
+
+	/**
 	 * Constructor
 	 */
 	public LambdaRunner() {
@@ -99,18 +109,29 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @param debugMode  Are we in debug mode or not
 	 */
 	public LambdaRunner( Path lambdaPath, Boolean debugMode ) {
+		Map<String, String> env = System.getenv();
 		this.lambdaPath	= lambdaPath;
 		this.debugMode	= debugMode;
+		this.lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", "/var/task" );
 
 		// Check if there is a BOXLANG_LAMBDA_CLASS environment variable and use that
 		// instead
-		if ( System.getenv( "BOXLANG_LAMBDA_CLASS" ) != null ) {
-			this.lambdaPath = Path.of( System.getenv( "BOXLANG_LAMBDA_CLASS" ) ).toAbsolutePath();
+		if ( env.get( "BOXLANG_LAMBDA_CLASS" ) != null ) {
+			this.lambdaPath = Path.of( env.get( "BOXLANG_LAMBDA_CLASS" ) ).toAbsolutePath();
 		}
 
 		// Do we have a BOXLANG_LAMBDA_DEBUGMODE environment variable
-		if ( System.getenv( "BOXLANG_LAMBDA_DEBUGMODE" ) != null ) {
-			this.debugMode = Boolean.parseBoolean( System.getenv( "BOXLANG_LAMBDA_DEBUGMODE" ) );
+		if ( env.get( "BOXLANG_LAMBDA_DEBUGMODE" ) != null ) {
+			this.debugMode = Boolean.parseBoolean( env.get( "BOXLANG_LAMBDA_DEBUGMODE" ) );
+		}
+
+		// Do we have a BOXLANG_LAMBDA_CONFIG environment variable
+		if ( env.get( "BOXLANG_LAMBDA_CONFIG" ) != null ) {
+			this.configPath = env.get( "BOXLANG_LAMBDA_CONFIG" );
+		}
+		// Look in the lambda root + boxlang.json
+		else if ( Path.of( this.lambdaRoot, "boxlang.json" ).toFile().exists() ) {
+			this.configPath = Path.of( this.lambdaRoot, "boxlang.json" ).toString();
 		}
 
 		// Log the lambda path if in debug mode
@@ -156,7 +177,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @param context The AWS Lambda context
 	 *
 	 * @return The response as a JSON string
-	 *
 	 */
 	public Map<?, ?> handleRequest( Map<String, Object> event, Context context ) {
 		LambdaLogger logger = context.getLogger();
@@ -175,7 +195,8 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		    "body", "" );
 
 		// Startup the runtime
-		BoxRuntime	runtime		= BoxRuntime.getInstance( this.debugMode );
+		// We seed it into the temp directory for class loading
+		BoxRuntime	runtime		= BoxRuntime.getInstance( this.debugMode, this.configPath, System.getProperty( "java.io.tmpdir" ) );
 		IBoxContext	boxContext	= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
 
 		try {
