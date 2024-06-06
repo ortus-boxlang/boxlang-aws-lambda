@@ -124,17 +124,9 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			@Override
 			public void run() {
 				System.out.println( "[BoxLang AWS] ShutdownHook triggered" );
-				System.out.println( "[BoxLang AWS] Cleaning up" );
+				System.out.println( "[BoxLang AWS] Shutting down runtime..." );
 				runtime.shutdown();
-
-				try {
-					Thread.sleep( 200 );
-				} catch ( Exception e ) {
-					System.out.println( e );
-				}
-
-				System.out.println( "[BoxLang AWS] exiting" );
-				System.exit( 0 );
+				System.out.println( "[BoxLang AWS] Runtime gracefully shutdown" );
 			}
 		} );
 	}
