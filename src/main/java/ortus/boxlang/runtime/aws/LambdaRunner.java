@@ -72,27 +72,27 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * The Lambda.bx file name by convention, which is where it's expanded by AWS
 	 * Lambda
 	 */
-	private static final String		DEFAULT_LAMBDA_CLASS	= "/var/task/Lambda.bx";
+	protected static final String		DEFAULT_LAMBDA_CLASS	= "/var/task/Lambda.bx";
 
 	/**
 	 * The absolute path to the Lambda.bx file to execute
 	 */
-	private Path					lambdaPath;
+	protected Path						lambdaPath;
 
 	/**
 	 * Are we in debug mode or not
 	 */
-	private Boolean					debugMode				= false;
+	protected Boolean					debugMode				= false;
 
 	/**
 	 * Lambda Root where it is deployed: /var/task by convention
 	 */
-	private String					lambdaRoot				= "";
+	protected String					lambdaRoot				= "";
 
 	/**
 	 * The BoxLang runtime
 	 */
-	private final static BoxRuntime	runtime;
+	protected static final BoxRuntime	runtime;
 
 	// Initialize the Runtime here
 	static {
@@ -204,6 +204,13 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	public LambdaRunner setLambdaPath( Path lambdaPath ) {
 		this.lambdaPath = lambdaPath;
 		return this;
+	}
+
+	/**
+	 * Get the BoxLang runtime
+	 */
+	public BoxRuntime getRuntime() {
+		return runtime;
 	}
 
 	/**
