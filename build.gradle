@@ -1,3 +1,5 @@
+import java.nio.file.StandardCopyOption
+import java.nio.file.Files
 import java.text.SimpleDateFormat
 import java.util.Date
 
@@ -168,6 +170,17 @@ task buildMainZip( type: Zip ) {
 	from 'src/main/resources/Lambda.bx'
 	into( 'lib' ) {
 		from shadowJar.outputs.files
+	}
+
+	doLast {
+		file( "build/evergreen" ).mkdirs()
+		if( branch == 'development' ){
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}-all.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-snapshot-all.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+		} else {
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}-all.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-latest-all.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+		}
+
+		println "+ Main Zip has been created"
 	}
 }
 shadowJar.finalizedBy( buildMainZip )
