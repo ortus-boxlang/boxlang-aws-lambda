@@ -120,7 +120,7 @@ processResources {
 	if( branch == 'development' ){
 		filter( ReplaceTokens, tokens: [ 'build.number': "-SNAPSHOT" ] )
 	} else {
-		filter( ReplaceTokens, tokens: [ 'build.number': "+${buildID}" ] )
+		filter( ReplaceTokens, tokens: [ 'build.number': "+" + buildID ] )
 	}
 }
 
