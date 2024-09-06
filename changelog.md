@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta13] - 2024-09-06
+
 ## [1.0.0-beta12] - 2024-08-30
 
 ## [1.0.0-beta11] - 2024-08-23
@@ -37,7 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First iteration of this module
 
-[Unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta12...HEAD
+[Unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta13...HEAD
+
+[1.0.0-beta13]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta12...v1.0.0-beta13
 
 [1.0.0-beta12]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta11...v1.0.0-beta12
 
