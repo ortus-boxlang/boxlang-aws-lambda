@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       lts:
-        description: 'The LTS marker'
+        description: "The LTS marker"
         required: false
         default: true
         type: boolean
