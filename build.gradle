@@ -93,6 +93,7 @@ jar {
 }
 shadowJar {
     destinationDirectory = file( "build/distributions" )
+	mergeServiceFiles()
 	exclude "io/undertow/**"
 	exclude "org/jboss/**"
 	exclude "org/wildfly/**"
