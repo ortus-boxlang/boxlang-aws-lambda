@@ -50,8 +50,10 @@ dependencies {
 	// LOCAL DEVELOPMENT ONLY
 	// CHOOSE THE RIGHT LOCATION FOR YOUR LOCAL DEPENDENCIES
     implementation files( '../boxlang/build/distributions/boxlang-' + boxlangVersion + '-all.jar' )
+    implementation files( '../boxlang-web-support/build/distributions/boxlang-web-support-' + boxlangVersion + '.jar' )
 
 	// Downloaded Dependencies
+    implementation files( 'src/test/resources/libs/boxlang-web-support-' + boxlangVersion + '.jar' )
 	implementation files( 'src/test/resources/libs/boxlang-' + boxlangVersion + '-all.jar' )
 	implementation 'com.amazonaws:aws-lambda-java-core:1.2.3'
     implementation 'org.slf4j:slf4j-nop:2.0.16'
@@ -342,9 +344,12 @@ task downloadBoxLang( type: Download ) {
 		file( "src/test/resources/libs" ).mkdirs()
 	}
     // Configure the URL of the file to download
-    src "https://downloads.ortussolutions.com/ortussolutions/boxlang/${boxlangVersion}/boxlang-${boxlangVersion}-all.jar"
-    // Specify the destination directory for the downloaded file
-    dest "src/test/resources/libs/boxlang-${boxlangVersion}-all.jar"
+    src([
+		"https://downloads.ortussolutions.com/ortussolutions/boxlang/${boxlangVersion}/boxlang-${boxlangVersion}-all.jar",
+		"https://downloads.ortussolutions.com/ortussolutions/boxlang-runtimes/boxlang-web-support/${boxlangVersion}/boxlang-web-support-${boxlangVersion}.jar"
+	])
+    // Specify the destination directories for the downloaded files
+	dest "src/test/resources/libs/"
     overwrite true
     onlyIfModified false
 }
