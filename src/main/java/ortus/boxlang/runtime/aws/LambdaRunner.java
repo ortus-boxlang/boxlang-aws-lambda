@@ -32,6 +32,7 @@ import ortus.boxlang.runtime.runnables.IClassRunnable;
 import ortus.boxlang.runtime.runnables.RunnableLoader;
 import ortus.boxlang.runtime.scopes.Key;
 import ortus.boxlang.runtime.services.ModuleService;
+import ortus.boxlang.runtime.types.Array;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
@@ -258,7 +259,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @throws BoxRuntimeException If the Lambda.bx file is not found or does not contain a `run` method
 	 *
 	 * @return The response as a JSON string
-	 *
 	 */
 	public Map<?, ?> handleRequest( Map<String, Object> event, Context context ) {
 		LambdaLogger logger = context.getLogger();
@@ -268,24 +268,21 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			logger.log( "Lambda firing with incoming event: " + event );
 		}
 
-		// Prep the response
-		IStruct		response	= Struct.of(
+		// Prep a response struct
+		IStruct			response		= Struct.of(
 		    "statusCode", 200,
 		    "headers", Struct.of(
 		        "Content-Type", "application/json",
 		        "Access-Control-Allow-Origin", "*" ),
-		    "body", "" );
+		    "body", "",
+		    "cookies", new Array()
+		);
 
 		// Prepare an execution context
-		IBoxContext	boxContext	= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
+		IBoxContext		boxContext		= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
 
-		// Prep the incoming event as a struct
-		IStruct		eventStruct	= Struct.fromMap( event );
-
-		// Verify the Lambda.bx file
-		if ( !lambdaPath.toFile().exists() ) {
-			throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]. So I don't know what to execute for you." );
-		}
+		// Convert the incoming event as a BoxLang struct
+		IStruct			eventStruct		= Struct.fromMap( event );
 
 		// Compile + Get the Lambda Class
 		IClassRunnable	lambda			= ( IClassRunnable ) DynamicObject.of(

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Changed
+
+- No more checking if lambda.bx exists on each execution, which accelerates the execution of the lambda runtime.
+
 ### Added
 
 - Multi-Function execution support via the `x-bx-function` request header.  This will allow you to build RESTFul APIs with multiple functions in a single Lambda runtime.
