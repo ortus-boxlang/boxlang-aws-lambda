@@ -31,6 +31,7 @@ import ortus.boxlang.runtime.interop.DynamicObject;
 import ortus.boxlang.runtime.runnables.IClassRunnable;
 import ortus.boxlang.runtime.runnables.RunnableLoader;
 import ortus.boxlang.runtime.scopes.Key;
+import ortus.boxlang.runtime.services.ModuleService;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
@@ -69,10 +70,27 @@ import ortus.boxlang.runtime.util.ResolvedFilePath;
 public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, ?>> {
 
 	/**
+	 * -----------------------------------------------------------------------------
+	 * Constants
+	 * -----------------------------------------------------------------------------
+	 */
+
+	/**
 	 * The Lambda.bx file name by convention, which is where it's expanded by AWS
 	 * Lambda
 	 */
 	protected static final String		DEFAULT_LAMBDA_CLASS	= "/var/task/Lambda.bx";
+
+	/**
+	 * Default lambda folders as per AWS
+	 */
+	protected static final String		DEFAULT_LAMBDA_ROOT		= "/var/task";
+
+	/**
+	 * -----------------------------------------------------------------------------
+	 * Properties
+	 * -----------------------------------------------------------------------------
+	 */
 
 	/**
 	 * The absolute path to the Lambda.bx file to execute
@@ -85,6 +103,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	protected Boolean					debugMode				= false;
 
 	/**
+	 * The BoxLang config path (if any)
+	 */
+	protected Path						configPath;
+
+	/**
 	 * Lambda Root where it is deployed: /var/task by convention
 	 */
 	protected String					lambdaRoot				= "";
@@ -94,12 +117,14 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 */
 	protected static final BoxRuntime	runtime;
 
-	// Initialize the Runtime here
+	/**
+	 * Initialize the BoxLang runtime as fast as possible here.
+	 */
 	static {
 		Map<String, String>	env			= System.getenv();
 		Boolean				debugMode	= false;
 		String				configPath	= null;
-		String				lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", "/var/task" );
+		String				lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", DEFAULT_LAMBDA_ROOT );
 
 		// Do we have a BOXLANG_LAMBDA_DEBUGMODE environment variable
 		if ( env.get( "BOXLANG_LAMBDA_DEBUGMODE" ) != null ) {
@@ -116,7 +141,17 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		}
 
 		// Startup the runtime
+		// Important: We are using the system temp directory for the runtime since we are stateless
 		runtime = BoxRuntime.getInstance( debugMode, configPath, System.getProperty( "java.io.tmpdir" ) );
+
+		// Load Modules by Convention: /var/task/modules if found.
+		Path modulesByConventionPath = Path.of( lambdaRoot, "modules" );
+		if ( modulesByConventionPath.toFile().exists() ) {
+			ModuleService moduleService = runtime.getModuleService();
+			runtime.getConfiguration().modulesDirectory.add( modulesByConventionPath.toString() );
+			moduleService.registerAll();
+			moduleService.activateAll();
+		}
 
 		// Add a shutdown hook to cleanup the runtime
 		Runtime.getRuntime().addShutdownHook( new Thread() {
@@ -132,7 +167,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	}
 
 	/**
-	 * Constructor
+	 * No-arg Constructor required by AWS Lambda
 	 */
 	public LambdaRunner() {
 		// Get a Path to the Lambda.bx file from the class loader
@@ -140,7 +175,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	}
 
 	/**
-	 * Constructor: Useful for tests
+	 * Constructor: Useful for tests and mocking
 	 *
 	 * @param lambdaPath The absolute path to the Lambda.bx file
 	 * @param debugMode  Are we in debug mode or not
@@ -149,7 +184,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		Map<String, String> env = System.getenv();
 		this.lambdaPath	= lambdaPath;
 		this.debugMode	= debugMode;
-		this.lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", "/var/task" );
+		this.lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", DEFAULT_LAMBDA_ROOT );
 
 		// Check if there is a BOXLANG_LAMBDA_CLASS environment variable and use that
 		// instead
@@ -162,7 +197,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			this.debugMode = Boolean.parseBoolean( env.get( "BOXLANG_LAMBDA_DEBUGMODE" ) );
 		}
 
-		// Log the lambda path if in debug mode
 		if ( this.debugMode ) {
 			System.out.println( "Lambda configured with the following path: " + this.lambdaPath );
 		}

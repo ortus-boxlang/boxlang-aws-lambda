@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Modules support. Allow to load modules into Lambda runtimes via the `modules` convention
+- `box.json` support for Lambda runtimes by convention in the lambda root
+- More testing facilities for Lambda runtimes
+
+## [1.0.0-beta26] - 2025-01-18
+
 ## [1.0.0-beta25] - 2024-12-13
 
 ## [1.0.0-beta24] - 2024-12-02
@@ -95,7 +103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [1.0.0-beta1]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/8fdd3e6b7b13ea2f30e758cc876c60714a9a4bc8...v1.0.0-beta1
 
-[Unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta25...HEAD
+[Unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta26...HEAD
+
+[1.0.0-beta26]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta26
 
 [1.0.0-beta25]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta25
 
