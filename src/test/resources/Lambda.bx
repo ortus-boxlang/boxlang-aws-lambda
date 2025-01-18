@@ -6,5 +6,6 @@ class{
 
 	function hello( event, context, response ){
 		println( "====> Hello Baby " & event.toString() );
+		return "Hello Baby";
 	}
 }
