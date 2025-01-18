@@ -90,7 +90,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	/**
 	 * The header we will use to see if we can execute that method in your lambda
 	 */
-	protected static final String		BOXLANG_LAMBDA_HEADER	= "x-bx-function";
+	protected static final Key			BOXLANG_LAMBDA_HEADER	= Key.of( "x-bx-function" );
 
 	/**
 	 * Default lambda method
@@ -291,7 +291,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		    .getTargetInstance();
 
 		// Discover the intended lambda method to execute
-		Key				lambdaMethod	= getLambdaMethod( event, context );
+		Key				lambdaMethod	= getLambdaMethod( eventStruct, context );
 
 		// Verify the run method
 		if ( !lambda.getThisScope().containsKey( lambdaMethod ) ) {
@@ -323,16 +323,13 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 *
 	 * @return The lambda method to execute
 	 */
-	public Key getLambdaMethod( Map<String, Object> event, Context context ) {
-		Key					lambdaMethod	= DEFAULT_LAMBDA_METHOD;
-
-		// Get headers from the event
-		@SuppressWarnings( "unchecked" )
-		Map<String, String>	headers			= ( Map<String, String> ) event.getOrDefault( "headers", null );
+	public Key getLambdaMethod( IStruct event, Context context ) {
+		Key		lambdaMethod	= DEFAULT_LAMBDA_METHOD;
+		IStruct	headers			= ( IStruct ) event.getOrDefault( "headers", null );
 
 		// Check for the "bx-function" header, else use the default lambda method
 		if ( headers != null && headers.containsKey( BOXLANG_LAMBDA_HEADER ) ) {
-			String bxFunctionHeader = headers.get( BOXLANG_LAMBDA_HEADER );
+			String bxFunctionHeader = headers.getAsString( BOXLANG_LAMBDA_HEADER );
 			if ( !bxFunctionHeader.isEmpty() ) {
 				return Key.of( bxFunctionHeader );
 			}
