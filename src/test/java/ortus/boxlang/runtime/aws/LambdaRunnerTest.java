@@ -84,7 +84,7 @@ public class LambdaRunnerTest {
 		event.put( "headers", new HashMap<String, Object>() {
 
 			{
-				put( "bx-function", "hello" );
+				put( "x-bx-function", "hello" );
 			}
 		} );
 

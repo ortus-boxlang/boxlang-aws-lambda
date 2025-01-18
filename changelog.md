@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Multi-Function execution support via the `bx-function` request header.  This will allow you to build RESTFul APIs with multiple functions in a single Lambda runtime.
+- Multi-Function execution support via the `x-bx-function` request header.  This will allow you to build RESTFul APIs with multiple functions in a single Lambda runtime.
 - Modules support. Allow to load modules into Lambda runtimes via the `modules` convention
 - `box.json` support for Lambda runtimes by convention in the lambda root
 - More testing facilities for Lambda runtimes

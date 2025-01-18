@@ -89,7 +89,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	/**
 	 * The header we will use to see if we can execute that method in your lambda
 	 */
-	protected static final String		BOXLANG_LAMBDA_HEADER	= "bx-function";
+	protected static final String		BOXLANG_LAMBDA_HEADER	= "x-bx-function";
 
 	/**
 	 * Default lambda method
@@ -331,7 +331,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 
 		// Get headers from the event
 		@SuppressWarnings( "unchecked" )
-		Map<String, String>	headers			= ( Map<String, String> ) event.get( "headers" );
+		Map<String, String>	headers			= ( Map<String, String> ) event.getOrDefault( "headers", null );
 
 		// Check for the "bx-function" header, else use the default lambda method
 		if ( headers != null && headers.containsKey( BOXLANG_LAMBDA_HEADER ) ) {
