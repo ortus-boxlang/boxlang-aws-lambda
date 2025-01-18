@@ -35,37 +35,61 @@ import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
 
 public class LambdaRunnerTest {
 
-	private static final Logger logger = LoggerFactory.getLogger( LambdaRunnerTest.class );
+	private static final Logger logger = LoggerFactory.getLogger(LambdaRunnerTest.class);
 
 	@Test
-	@DisplayName( "LambdaRunner throws BoxRuntimeException when Lambda.bx not found" )
+	@DisplayName("LambdaRunner throws BoxRuntimeException when Lambda.bx not found")
 	public void testLambdaNotFound() throws IOException {
 		// Set a non-existent path
-		Path			invalidPath	= Path.of( "invalid_path", "Lambda.bx" );
-		LambdaRunner	runner		= new LambdaRunner( invalidPath, true );
+		Path invalidPath = Path.of("invalid_path", "Lambda.bx");
+		LambdaRunner runner = new LambdaRunner(invalidPath, true);
 		// Create a AWS Lambda Context
-		Context			context		= new TestContext();
-		var				event		= new HashMap<String, Object>();
+		Context context = new TestContext();
+		var event = new HashMap<String, Object>();
 
 		// Expect BoxRuntimeException
-		assertThrows( BoxRuntimeException.class, () -> runner.handleRequest( event, context ) );
+		assertThrows(BoxRuntimeException.class, () -> runner.handleRequest(event, context));
 	}
 
-	@DisplayName( "Test a valid Lambda.bx" )
+	@DisplayName("Test a valid Lambda.bx")
 	@Test
 	public void testValidLambda() throws IOException {
 		// Set a valid path
-		Path			validPath	= Path.of( "src", "test", "resources", "Lambda.bx" );
-		LambdaRunner	runner		= new LambdaRunner( validPath, true );
+		Path validPath = Path.of("src", "test", "resources", "Lambda.bx");
+		LambdaRunner runner = new LambdaRunner(validPath, true);
 		// Create a AWS Lambda Context
-		Context			context		= new TestContext();
-		var				event		= new HashMap<String, Object>();
+		Context context = new TestContext();
+		var event = new HashMap<String, Object>();
 		// Add some mock data to the event
-		event.put( "name", "Ortus Solutions" );
-		event.put( "when", Instant.now().toString() );
+		event.put("name", "Ortus Solutions");
+		event.put("when", Instant.now().toString());
 
-		var results = runner.handleRequest( event, context );
-		System.out.println( "====> RESULTS " + results );
+		var results = runner.handleRequest(event, context);
+		System.out.println("====> RESULTS " + results);
+	}
+
+	@DisplayName("Test a valid Lambda.bx with a header bx-function")
+	@Test
+	public void testValidLambdaWithHeader() throws IOException {
+		// Set a valid path
+		Path validPath = Path.of("src", "test", "resources", "Lambda.bx");
+		LambdaRunner runner = new LambdaRunner(validPath, true);
+		// Create a AWS Lambda Context
+		Context context = new TestContext();
+		var event = new HashMap<String, Object>();
+		// Add some mock data to the event
+		event.put("name", "Ortus Solutions");
+		event.put("when", Instant.now().toString());
+		// Add a header to the event
+		event.put("headers", new HashMap<String, Object>() {
+
+			{
+				put("bx-function", "hello");
+			}
+		});
+
+		var results = runner.handleRequest(event, context);
+		System.out.println("====> RESULTS " + results);
 	}
 
 }

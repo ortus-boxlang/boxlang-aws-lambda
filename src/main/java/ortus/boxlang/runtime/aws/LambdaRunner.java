@@ -87,6 +87,16 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	protected static final String		DEFAULT_LAMBDA_ROOT		= "/var/task";
 
 	/**
+	 * The header we will use to see if we can execute that method in your lambda
+	 */
+	protected static final String		BOXLANG_LAMBDA_HEADER	= "bx-function";
+
+	/**
+	 * Default lambda method
+	 */
+	protected static final Key			DEFAULT_LAMBDA_METHOD	= Key.run;
+
+	/**
 	 * -----------------------------------------------------------------------------
 	 * Properties
 	 * -----------------------------------------------------------------------------
@@ -274,24 +284,27 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 
 		// Verify the Lambda.bx file
 		if ( !lambdaPath.toFile().exists() ) {
-			throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]" );
+			throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]. So I don't know what to execute for you." );
 		}
 
 		// Compile + Get the Lambda Class
-		IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
+		IClassRunnable	lambda			= ( IClassRunnable ) DynamicObject.of(
 		    RunnableLoader.getInstance().loadClass( ResolvedFilePath.of( lambdaPath ), boxContext ) )
 		    .invokeConstructor( boxContext )
 		    .getTargetInstance();
 
+		// Discover the intended lambda method to execute
+		Key				lambdaMethod	= getLambdaMethod( event, context );
+
 		// Verify the run method
-		if ( !lambda.getThisScope().containsKey( Key.run ) ) {
-			throw new BoxRuntimeException( "Lambda.bx file does not contain a `run` method" );
+		if ( !lambda.getThisScope().containsKey( lambdaMethod ) ) {
+			throw new BoxRuntimeException( "Lambda.bx file does not contain a [" + lambdaMethod + "] method. So I don't know what to execute for you." );
 		}
 
 		// Invoke the run method
 		var results = lambda.dereferenceAndInvoke(
 		    boxContext,
-		    Key.run,
+		    lambdaMethod,
 		    new Object[] { eventStruct, context, response },
 		    false
 		);
@@ -303,5 +316,31 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 
 		// Lambdas marshall the Map to a JSON string
 		return response;
+	}
+
+	/**
+	 * Discover the intended lambda method to execute
+	 *
+	 * @param event   The incoming event
+	 * @param context The AWS Lambda context
+	 *
+	 * @return The lambda method to execute
+	 */
+	public Key getLambdaMethod( Map<String, Object> event, Context context ) {
+		Key					lambdaMethod	= DEFAULT_LAMBDA_METHOD;
+
+		// Get headers from the event
+		@SuppressWarnings( "unchecked" )
+		Map<String, String>	headers			= ( Map<String, String> ) event.get( "headers" );
+
+		// Check for the "bx-function" header, else use the default lambda method
+		if ( headers != null && headers.containsKey( BOXLANG_LAMBDA_HEADER ) ) {
+			String bxFunctionHeader = headers.get( BOXLANG_LAMBDA_HEADER );
+			if ( !bxFunctionHeader.isEmpty() ) {
+				return Key.of( bxFunctionHeader );
+			}
+		}
+
+		return lambdaMethod;
 	}
 }

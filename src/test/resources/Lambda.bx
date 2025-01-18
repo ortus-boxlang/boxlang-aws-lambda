@@ -3,4 +3,8 @@ class{
 	function run( event, context, response ){
 		println( "====> Incoming event " & event.toString() );
 	}
+
+	function hello( event, context, response ){
+		println( "====> Hello Baby " & event.toString() );
+	}
 }
