@@ -25,8 +25,12 @@ import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 
 import ortus.boxlang.runtime.BoxRuntime;
+import ortus.boxlang.runtime.application.BaseApplicationListener;
 import ortus.boxlang.runtime.context.IBoxContext;
+import ortus.boxlang.runtime.context.RequestBoxContext;
 import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
+import ortus.boxlang.runtime.dynamic.casters.StringCaster;
+import ortus.boxlang.runtime.dynamic.casters.StructCaster;
 import ortus.boxlang.runtime.interop.DynamicObject;
 import ortus.boxlang.runtime.runnables.IClassRunnable;
 import ortus.boxlang.runtime.runnables.RunnableLoader;
@@ -35,7 +39,10 @@ import ortus.boxlang.runtime.services.ModuleService;
 import ortus.boxlang.runtime.types.Array;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
+import ortus.boxlang.runtime.types.exceptions.AbortException;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
+import ortus.boxlang.runtime.types.exceptions.ExceptionUtil;
+import ortus.boxlang.runtime.util.FileSystemUtil;
 import ortus.boxlang.runtime.util.ResolvedFilePath;
 
 /**
@@ -65,8 +72,6 @@ import ortus.boxlang.runtime.util.ResolvedFilePath;
  * The response is expected to be a JSON string.
  * <p>
  * The Lambda.bx file is compiled and executed using the BoxLang runtime.
- * <p>
- * The runtime is started up and shutdown for each request.
  */
 public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, ?>> {
 
@@ -269,7 +274,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		}
 
 		// Prep a response struct
-		IStruct			response		= Struct.of(
+		IStruct					response					= Struct.of(
 		    "statusCode", 200,
 		    "headers", Struct.of(
 		        "Content-Type", "application/json",
@@ -278,37 +283,79 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		    "cookies", new Array()
 		);
 
-		// Prepare an execution context
-		IBoxContext		boxContext		= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
-
-		// Convert the incoming event as a BoxLang struct
-		IStruct			eventStruct		= Struct.fromMap( event );
-
-		// Compile + Get the Lambda Class
-		IClassRunnable	lambda			= ( IClassRunnable ) DynamicObject.of(
-		    RunnableLoader.getInstance().loadClass( ResolvedFilePath.of( lambdaPath ), boxContext ) )
-		    .invokeConstructor( boxContext )
-		    .getTargetInstance();
-
-		// Discover the intended lambda method to execute
-		Key				lambdaMethod	= getLambdaMethod( eventStruct, context );
-
-		// Verify the run method
-		if ( !lambda.getThisScope().containsKey( lambdaMethod ) ) {
-			throw new BoxRuntimeException( "Lambda.bx file does not contain a [" + lambdaMethod + "] method. So I don't know what to execute for you." );
-		}
-
-		// Invoke the run method
-		var results = lambda.dereferenceAndInvoke(
-		    boxContext,
-		    lambdaMethod,
-		    new Object[] { eventStruct, context, response },
-		    false
+		// Prepare an execution context and do full Application.bx life-cycle checks
+		ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( lambdaPath );
+		String					resolvedLambdaPathString	= resolvedLambdaPath.absolutePath().toString();
+		IBoxContext				boxContext					= new ScriptingRequestBoxContext(
+		    runtime.getRuntimeContext(),
+		    FileSystemUtil.createFileUri( resolvedLambdaPath.absolutePath().toString() )
 		);
 
+		// Set threading Context and prep for request
+		BaseApplicationListener	listener					= boxContext.getParentOfType( RequestBoxContext.class ).getApplicationListener();
+		RequestBoxContext.setCurrent( boxContext.getParentOfType( RequestBoxContext.class ) );
+		Throwable	errorToHandle	= null;
+		Object		lambdaResult	= null;
+		// Convert the incoming event as a BoxLang struct
+		IStruct		eventStruct		= Struct.fromMap( event );
+
+		try {
+			// Compile + Get the Lambda Class
+			IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
+			    RunnableLoader.getInstance().loadClass( resolvedLambdaPath, boxContext ) )
+			    .invokeConstructor( boxContext )
+			    .getTargetInstance();
+			// Discover the intended lambda method to execute
+			Key lambdaMethod = getLambdaMethod( eventStruct, context );
+
+			// Invoke the onRequestStart method
+			listener.onRequestStart( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			// Invoke the Lambda method
+			lambdaResult = lambda.dereferenceAndInvoke(
+			    boxContext,
+			    lambdaMethod,
+			    new Object[] { eventStruct, context, response },
+			    false
+			);
+		} catch ( AbortException e ) {
+			try {
+				listener.onAbort( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			} catch ( Throwable ae ) {
+				// Opps, an error while handling onAbort
+				errorToHandle = ae;
+			}
+			boxContext.flushBuffer( true );
+			if ( e.getCause() != null ) {
+				// This will always be an instance of CustomException
+				throw ( RuntimeException ) e.getCause();
+			}
+		} catch ( Exception e ) {
+			errorToHandle = e;
+		} finally {
+			try {
+				listener.onRequestEnd( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			} catch ( Throwable e ) {
+				// Opps, an error while handling onRequestEnd
+				errorToHandle = e;
+			}
+			boxContext.flushBuffer( false );
+			if ( errorToHandle != null ) {
+				try {
+					if ( !listener.onError( boxContext, new Object[] { errorToHandle, "", eventStruct, context } ) ) {
+						throw errorToHandle;
+					}
+					// This is a failsafe in case the onError blows up.
+				} catch ( Throwable t ) {
+					errorToHandle.printStackTrace();
+					ExceptionUtil.throwException( t );
+				}
+			}
+			boxContext.flushBuffer( false );
+		}
+
 		// If results is not null use it as the response
-		if ( results != null ) {
-			response.put( "body", results );
+		if ( lambdaResult != null ) {
+			response.put( "body", lambdaResult );
 		}
 
 		// Lambdas marshall the Map to a JSON string
@@ -325,11 +372,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 */
 	public Key getLambdaMethod( IStruct event, Context context ) {
 		Key		lambdaMethod	= DEFAULT_LAMBDA_METHOD;
-		IStruct	headers			= ( IStruct ) event.getOrDefault( "headers", null );
+		IStruct	headers			= StructCaster.cast( event.getOrDefault( "headers", new Struct() ) );
 
 		// Check for the "bx-function" header, else use the default lambda method
-		if ( headers != null && headers.containsKey( BOXLANG_LAMBDA_HEADER ) ) {
-			String bxFunctionHeader = headers.getAsString( BOXLANG_LAMBDA_HEADER );
+		if ( headers.containsKey( BOXLANG_LAMBDA_HEADER ) ) {
+			String bxFunctionHeader = StringCaster.cast( headers.get( BOXLANG_LAMBDA_HEADER ) );
 			if ( !bxFunctionHeader.isEmpty() ) {
 				return Key.of( bxFunctionHeader );
 			}
