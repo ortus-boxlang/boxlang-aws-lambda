@@ -25,15 +25,24 @@ import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 
 import ortus.boxlang.runtime.BoxRuntime;
+import ortus.boxlang.runtime.application.BaseApplicationListener;
 import ortus.boxlang.runtime.context.IBoxContext;
+import ortus.boxlang.runtime.context.RequestBoxContext;
 import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
+import ortus.boxlang.runtime.dynamic.casters.StringCaster;
+import ortus.boxlang.runtime.dynamic.casters.StructCaster;
 import ortus.boxlang.runtime.interop.DynamicObject;
 import ortus.boxlang.runtime.runnables.IClassRunnable;
 import ortus.boxlang.runtime.runnables.RunnableLoader;
 import ortus.boxlang.runtime.scopes.Key;
+import ortus.boxlang.runtime.services.ModuleService;
+import ortus.boxlang.runtime.types.Array;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
+import ortus.boxlang.runtime.types.exceptions.AbortException;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
+import ortus.boxlang.runtime.types.exceptions.ExceptionUtil;
+import ortus.boxlang.runtime.util.FileSystemUtil;
 import ortus.boxlang.runtime.util.ResolvedFilePath;
 
 /**
@@ -63,16 +72,41 @@ import ortus.boxlang.runtime.util.ResolvedFilePath;
  * The response is expected to be a JSON string.
  * <p>
  * The Lambda.bx file is compiled and executed using the BoxLang runtime.
- * <p>
- * The runtime is started up and shutdown for each request.
  */
 public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, ?>> {
+
+	/**
+	 * -----------------------------------------------------------------------------
+	 * Constants
+	 * -----------------------------------------------------------------------------
+	 */
 
 	/**
 	 * The Lambda.bx file name by convention, which is where it's expanded by AWS
 	 * Lambda
 	 */
 	protected static final String		DEFAULT_LAMBDA_CLASS	= "/var/task/Lambda.bx";
+
+	/**
+	 * Default lambda folders as per AWS
+	 */
+	protected static final String		DEFAULT_LAMBDA_ROOT		= "/var/task";
+
+	/**
+	 * The header we will use to see if we can execute that method in your lambda
+	 */
+	protected static final Key			BOXLANG_LAMBDA_HEADER	= Key.of( "x-bx-function" );
+
+	/**
+	 * Default lambda method
+	 */
+	protected static final Key			DEFAULT_LAMBDA_METHOD	= Key.run;
+
+	/**
+	 * -----------------------------------------------------------------------------
+	 * Properties
+	 * -----------------------------------------------------------------------------
+	 */
 
 	/**
 	 * The absolute path to the Lambda.bx file to execute
@@ -85,6 +119,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	protected Boolean					debugMode				= false;
 
 	/**
+	 * The BoxLang config path (if any)
+	 */
+	protected Path						configPath;
+
+	/**
 	 * Lambda Root where it is deployed: /var/task by convention
 	 */
 	protected String					lambdaRoot				= "";
@@ -94,12 +133,14 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 */
 	protected static final BoxRuntime	runtime;
 
-	// Initialize the Runtime here
+	/**
+	 * Initialize the BoxLang runtime as fast as possible here.
+	 */
 	static {
 		Map<String, String>	env			= System.getenv();
 		Boolean				debugMode	= false;
 		String				configPath	= null;
-		String				lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", "/var/task" );
+		String				lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", DEFAULT_LAMBDA_ROOT );
 
 		// Do we have a BOXLANG_LAMBDA_DEBUGMODE environment variable
 		if ( env.get( "BOXLANG_LAMBDA_DEBUGMODE" ) != null ) {
@@ -116,7 +157,17 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		}
 
 		// Startup the runtime
+		// Important: We are using the system temp directory for the runtime since we are stateless
 		runtime = BoxRuntime.getInstance( debugMode, configPath, System.getProperty( "java.io.tmpdir" ) );
+
+		// Load Modules by Convention: /var/task/modules if found.
+		Path modulesByConventionPath = Path.of( lambdaRoot, "modules" );
+		if ( modulesByConventionPath.toFile().exists() ) {
+			ModuleService moduleService = runtime.getModuleService();
+			runtime.getConfiguration().modulesDirectory.add( modulesByConventionPath.toString() );
+			moduleService.registerAll();
+			moduleService.activateAll();
+		}
 
 		// Add a shutdown hook to cleanup the runtime
 		Runtime.getRuntime().addShutdownHook( new Thread() {
@@ -132,7 +183,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	}
 
 	/**
-	 * Constructor
+	 * No-arg Constructor required by AWS Lambda
 	 */
 	public LambdaRunner() {
 		// Get a Path to the Lambda.bx file from the class loader
@@ -140,7 +191,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	}
 
 	/**
-	 * Constructor: Useful for tests
+	 * Constructor: Useful for tests and mocking
 	 *
 	 * @param lambdaPath The absolute path to the Lambda.bx file
 	 * @param debugMode  Are we in debug mode or not
@@ -149,7 +200,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		Map<String, String> env = System.getenv();
 		this.lambdaPath	= lambdaPath;
 		this.debugMode	= debugMode;
-		this.lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", "/var/task" );
+		this.lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", DEFAULT_LAMBDA_ROOT );
 
 		// Check if there is a BOXLANG_LAMBDA_CLASS environment variable and use that
 		// instead
@@ -162,7 +213,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			this.debugMode = Boolean.parseBoolean( env.get( "BOXLANG_LAMBDA_DEBUGMODE" ) );
 		}
 
-		// Log the lambda path if in debug mode
 		if ( this.debugMode ) {
 			System.out.println( "Lambda configured with the following path: " + this.lambdaPath );
 		}
@@ -214,7 +264,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @throws BoxRuntimeException If the Lambda.bx file is not found or does not contain a `run` method
 	 *
 	 * @return The response as a JSON string
-	 *
 	 */
 	public Map<?, ?> handleRequest( Map<String, Object> event, Context context ) {
 		LambdaLogger logger = context.getLogger();
@@ -224,50 +273,115 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			logger.log( "Lambda firing with incoming event: " + event );
 		}
 
-		// Prep the response
-		IStruct		response	= Struct.of(
+		// Prep a response struct
+		IStruct					response					= Struct.of(
 		    "statusCode", 200,
 		    "headers", Struct.of(
 		        "Content-Type", "application/json",
 		        "Access-Control-Allow-Origin", "*" ),
-		    "body", "" );
-
-		// Prepare an execution context
-		IBoxContext	boxContext	= new ScriptingRequestBoxContext( runtime.getRuntimeContext() );
-
-		// Prep the incoming event as a struct
-		IStruct		eventStruct	= Struct.fromMap( event );
-
-		// Verify the Lambda.bx file
-		if ( !lambdaPath.toFile().exists() ) {
-			throw new BoxRuntimeException( "Lambda.bx file not found in [" + lambdaPath + "]" );
-		}
-
-		// Compile + Get the Lambda Class
-		IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
-		    RunnableLoader.getInstance().loadClass( ResolvedFilePath.of( lambdaPath ), boxContext ) )
-		    .invokeConstructor( boxContext )
-		    .getTargetInstance();
-
-		// Verify the run method
-		if ( !lambda.getThisScope().containsKey( Key.run ) ) {
-			throw new BoxRuntimeException( "Lambda.bx file does not contain a `run` method" );
-		}
-
-		// Invoke the run method
-		var results = lambda.dereferenceAndInvoke(
-		    boxContext,
-		    Key.run,
-		    new Object[] { eventStruct, context, response },
-		    false
+		    "body", "",
+		    "cookies", new Array()
 		);
 
+		// Prepare an execution context and do full Application.bx life-cycle checks
+		ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( lambdaPath );
+		String					resolvedLambdaPathString	= resolvedLambdaPath.absolutePath().toString();
+		IBoxContext				boxContext					= new ScriptingRequestBoxContext(
+		    runtime.getRuntimeContext(),
+		    FileSystemUtil.createFileUri( resolvedLambdaPath.absolutePath().toString() )
+		);
+
+		// Set threading Context and prep for request
+		BaseApplicationListener	listener					= boxContext.getParentOfType( RequestBoxContext.class ).getApplicationListener();
+		RequestBoxContext.setCurrent( boxContext.getParentOfType( RequestBoxContext.class ) );
+		Throwable	errorToHandle	= null;
+		Object		lambdaResult	= null;
+		// Convert the incoming event as a BoxLang struct
+		IStruct		eventStruct		= Struct.fromMap( event );
+
+		try {
+			// Compile + Get the Lambda Class
+			IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
+			    RunnableLoader.getInstance().loadClass( resolvedLambdaPath, boxContext ) )
+			    .invokeConstructor( boxContext )
+			    .getTargetInstance();
+			// Discover the intended lambda method to execute
+			Key lambdaMethod = getLambdaMethod( eventStruct, context );
+
+			// Invoke the onRequestStart method
+			listener.onRequestStart( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			// Invoke the Lambda method
+			lambdaResult = lambda.dereferenceAndInvoke(
+			    boxContext,
+			    lambdaMethod,
+			    new Object[] { eventStruct, context, response },
+			    false
+			);
+		} catch ( AbortException e ) {
+			try {
+				listener.onAbort( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			} catch ( Throwable ae ) {
+				// Opps, an error while handling onAbort
+				errorToHandle = ae;
+			}
+			boxContext.flushBuffer( true );
+			if ( e.getCause() != null ) {
+				// This will always be an instance of CustomException
+				throw ( RuntimeException ) e.getCause();
+			}
+		} catch ( Exception e ) {
+			errorToHandle = e;
+		} finally {
+			try {
+				listener.onRequestEnd( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			} catch ( Throwable e ) {
+				// Opps, an error while handling onRequestEnd
+				errorToHandle = e;
+			}
+			boxContext.flushBuffer( false );
+			if ( errorToHandle != null ) {
+				try {
+					if ( !listener.onError( boxContext, new Object[] { errorToHandle, "", eventStruct, context } ) ) {
+						throw errorToHandle;
+					}
+					// This is a failsafe in case the onError blows up.
+				} catch ( Throwable t ) {
+					errorToHandle.printStackTrace();
+					ExceptionUtil.throwException( t );
+				}
+			}
+			boxContext.flushBuffer( false );
+		}
+
 		// If results is not null use it as the response
-		if ( results != null ) {
-			response.put( "body", results );
+		if ( lambdaResult != null ) {
+			response.put( "body", lambdaResult );
 		}
 
 		// Lambdas marshall the Map to a JSON string
 		return response;
+	}
+
+	/**
+	 * Discover the intended lambda method to execute
+	 *
+	 * @param event   The incoming event
+	 * @param context The AWS Lambda context
+	 *
+	 * @return The lambda method to execute
+	 */
+	public Key getLambdaMethod( IStruct event, Context context ) {
+		Key		lambdaMethod	= DEFAULT_LAMBDA_METHOD;
+		IStruct	headers			= StructCaster.cast( event.getOrDefault( "headers", new Struct() ) );
+
+		// Check for the "bx-function" header, else use the default lambda method
+		if ( headers.containsKey( BOXLANG_LAMBDA_HEADER ) ) {
+			String bxFunctionHeader = StringCaster.cast( headers.get( BOXLANG_LAMBDA_HEADER ) );
+			if ( !bxFunctionHeader.isEmpty() ) {
+				return Key.of( bxFunctionHeader );
+			}
+		}
+
+		return lambdaMethod;
 	}
 }

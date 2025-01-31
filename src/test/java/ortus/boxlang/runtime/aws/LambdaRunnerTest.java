@@ -17,6 +17,7 @@
  */
 package ortus.boxlang.runtime.aws;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
@@ -31,7 +32,8 @@ import org.slf4j.LoggerFactory;
 
 import com.amazonaws.services.lambda.runtime.Context;
 
-import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
+import ortus.boxlang.runtime.scopes.Key;
+import ortus.boxlang.runtime.types.IStruct;
 
 public class LambdaRunnerTest {
 
@@ -48,7 +50,7 @@ public class LambdaRunnerTest {
 		var				event		= new HashMap<String, Object>();
 
 		// Expect BoxRuntimeException
-		assertThrows( BoxRuntimeException.class, () -> runner.handleRequest( event, context ) );
+		assertThrows( RuntimeException.class, () -> runner.handleRequest( event, context ) );
 	}
 
 	@DisplayName( "Test a valid Lambda.bx" )
@@ -64,8 +66,35 @@ public class LambdaRunnerTest {
 		event.put( "name", "Ortus Solutions" );
 		event.put( "when", Instant.now().toString() );
 
-		var results = runner.handleRequest( event, context );
-		System.out.println( "====> RESULTS " + results );
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		System.out.println( "====> RESPONSE " + response );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+	}
+
+	@DisplayName( "Test a valid Lambda.bx with a header bx-function" )
+	@Test
+	public void testValidLambdaWithHeader() throws IOException {
+		// Set a valid path
+		Path			validPath	= Path.of( "src", "test", "resources", "Lambda.bx" );
+		LambdaRunner	runner		= new LambdaRunner( validPath, true );
+		// Create a AWS Lambda Context
+		Context			context		= new TestContext();
+		var				event		= new HashMap<String, Object>();
+		// Add some mock data to the event
+		event.put( "name", "Ortus Solutions" );
+		event.put( "when", Instant.now().toString() );
+		// Add a header to the event
+		event.put( "headers", new HashMap<String, Object>() {
+
+			{
+				put( "x-bx-function", "hello" );
+			}
+		} );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		System.out.println( "====> RESPONSE " + response );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		assertThat( response.getAsString( Key.of( "body" ) ) ).isEqualTo( "Hello Baby" );
 	}
 
 }
