@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-beta27] - 2025-01-31
+
 ## Changed
 
 - No more checking if lambda.bx exists on each execution, which accelerates the execution of the lambda runtime.
@@ -109,7 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [1.0.0-beta1]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/8fdd3e6b7b13ea2f30e758cc876c60714a9a4bc8...v1.0.0-beta1
 
-[Unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta26...HEAD
+[Unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta27...HEAD
+
+[1.0.0-beta27]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta27
 
 [1.0.0-beta26]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta26
 
