@@ -60,7 +60,7 @@ dependencies {
 
     // Testing Dependencies
 	// Pin this for now as there is a problem finding the tests with 5.11.4
-    testImplementation "org.junit.jupiter:junit-jupiter:5.11.3"
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
 	testImplementation "org.mockito:mockito-core:5.+"
 	testImplementation "com.google.truth:truth:1.+"
 }
