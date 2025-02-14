@@ -171,7 +171,7 @@ In order to deploy your function to AWS Lambda, you need to package the runtime 
 ```
 + Lambda.bx
 /lib
-  + boxlang-aws-lambda-1.0.0-all.jar
+  + boxlang-aws-lambda-1.0.0.jar
 ```
 
 You can use our source template here: https://github.com/ortus-boxlang/boxlang-aws-lambda-template
