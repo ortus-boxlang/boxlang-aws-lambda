@@ -10,10 +10,8 @@ plugins {
     id "com.diffplug.spotless" version "7.0.2"
 	// https://github.com/harbby/gradle-serviceloader
     id "com.github.harbby.gradle.serviceloader" version "1.1.9"
-	// For building shadow jars with jdk 17 ONLY
-    //id 'com.github.johnrengelman.shadow' version '8.1.1'
-    // For building shadow jars using JDK 21 +, they had to fork
-    id "io.github.goooler.shadow" version "8.1.8"
+	// Shadow
+	id "com.gradleup.shadow" version "9.0.0-beta8"
     // Download task
     id "de.undercouch.download" version "5.6.0"
 	// Task visualizer
@@ -49,20 +47,22 @@ repositories {
 dependencies {
 	// LOCAL DEVELOPMENT ONLY
 	// CHOOSE THE RIGHT LOCATION FOR YOUR LOCAL DEPENDENCIES
-    implementation files( '../boxlang/build/distributions/boxlang-' + boxlangVersion + '-all.jar' )
+    implementation files( '../boxlang/build/distributions/boxlang-' + boxlangVersion + '.jar' )
     implementation files( '../boxlang-web-support/build/distributions/boxlang-web-support-' + boxlangVersion + '.jar' )
 
 	// Downloaded Dependencies
     implementation files( 'src/test/resources/libs/boxlang-web-support-' + boxlangVersion + '.jar' )
-	implementation files( 'src/test/resources/libs/boxlang-' + boxlangVersion + '-all.jar' )
+	implementation files( 'src/test/resources/libs/boxlang-' + boxlangVersion + '.jar' )
 	implementation 'com.amazonaws:aws-lambda-java-core:1.2.3'
     implementation 'org.slf4j:slf4j-nop:2.0.16'
 
     // Testing Dependencies
 	// Pin this for now as there is a problem finding the tests with 5.11.4
-    testImplementation "org.junit.jupiter:junit-jupiter:5.11.3"
+    testImplementation "org.junit.jupiter:junit-jupiter:5.+"
 	testImplementation "org.mockito:mockito-core:5.+"
 	testImplementation "com.google.truth:truth:1.+"
+	// Explicitly declare the JUnit platform launcher (to avoid deprecation)
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
 java {
@@ -93,6 +93,7 @@ jar {
     }
 }
 shadowJar {
+	archiveClassifier = ""
     destinationDirectory = file( "build/distributions" )
 	mergeServiceFiles()
 	exclude "io/undertow/**"
@@ -319,9 +320,9 @@ task buildMainZip( type: Zip ) {
 	doLast {
 		file( "build/evergreen" ).mkdirs()
 		if( branch == 'development' ){
-			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}-all.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-snapshot-all.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-snapshot.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
 		} else {
-			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}-all.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-latest-all.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-latest.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
 		}
 
 		println "+ Main Zip has been created"
@@ -338,7 +339,7 @@ test {
 
 /**
  * TEMPORARY until we publish to maven
- * Task to download the latest jar from https://ortus-temp.s3.amazonaws.com/jericho/libs/boxlang-1.0.0-all.jar
+ * Task to download the latest jar from https://ortus-temp.s3.amazonaws.com/jericho/libs/boxlang-1.0.0.jar
  */
 task downloadBoxLang( type: Download ) {
 	// Create the destination directory
@@ -347,7 +348,7 @@ task downloadBoxLang( type: Download ) {
 	}
     // Configure the URL of the file to download
     src([
-		"https://downloads.ortussolutions.com/ortussolutions/boxlang/${boxlangVersion}/boxlang-${boxlangVersion}-all.jar",
+		"https://downloads.ortussolutions.com/ortussolutions/boxlang/${boxlangVersion}/boxlang-${boxlangVersion}.jar",
 		"https://downloads.ortussolutions.com/ortussolutions/boxlang-runtimes/boxlang-web-support/${boxlangVersion}/boxlang-web-support-${boxlangVersion}.jar"
 	])
     // Specify the destination directories for the downloaded files
@@ -365,19 +366,18 @@ project.ext.bumpVersion = {
 	boolean minor = false,
 	boolean patch = false,
 	boolean beta = false,
+	boolean rc = false,
 	property = "version" ->
 
 	def propertiesFile = file( './gradle.properties' );
 	def properties = new Properties();
 
 	properties.load( propertiesFile.newDataInputStream() )
-	def versionTarget = major ? 0 : minor ? 1 : 2
+	def versionTarget = major ? 0 : minor ? 1 : beta ? 2 : 3
 
 	def currentVersion = properties.getProperty( property )
 	def versionParts = currentVersion.split( '\\.' )
-	if( !beta ){
-		def newPathVersion = versionParts[ versionTarget ].toInteger() + 1
-	}
+	def newPathVersion = versionParts[ versionTarget ].toInteger() + 1
 	def newVersion = '';
 
 	if( patch ){
@@ -392,6 +392,8 @@ project.ext.bumpVersion = {
 		// Now we get the beta number
 		def betaNumber = betaString.split( 'beta' )[ 1 ].toInteger() + 1
 		newVersion = currentVersion.split( '-' )[ 0 ] + "-beta${betaNumber}"
+	} else if( rc ){
+		newVersion = "${versionParts[ 0 ]}.${versionParts[ 1 ]}.${versionParts[ 2 ]}.${newPathVersion}"
 	}
 
 	properties.setProperty( property, newVersion )
@@ -405,8 +407,8 @@ project.ext.bumpVersion = {
  */
 task bumpMajorVersion {
 	doLast{
-		bumpVersion( true, false, false, false, "version" )
-		bumpVersion( true, false, false, false, "boxlangVersion" )
+		bumpVersion( true, false, false, false, false, "version" )
+		bumpVersion( true, false, false, false, false, "boxlangVersion" )
 	}
 }
 
@@ -415,8 +417,8 @@ task bumpMajorVersion {
  */
 task bumpMinorVersion {
 	doLast{
-		bumpVersion( false, true, false, false, "version" )
-		bumpVersion( false, true, false, false, "boxlangVersion" )
+		bumpVersion( false, true, false, false, false, "version" )
+		bumpVersion( false, true, false, false, false, "boxlangVersion" )
 	}
 }
 
@@ -425,8 +427,8 @@ task bumpMinorVersion {
  */
 task bumpPatchVersion {
 	doLast{
-		bumpVersion( false, false, true, false, "version" )
-		bumpVersion( false, false, true, false, "boxlangVersion" )
+		bumpVersion( false, false, true, false, false, "version" )
+		bumpVersion( false, false, true, false, false, "boxlangVersion" )
 	}
 }
 
@@ -435,7 +437,17 @@ task bumpPatchVersion {
  */
 task bumpBetaVersion {
 	doLast{
-		bumpVersion( false, false, false, true, "version" )
-		bumpVersion( false, false, false, true, "boxlangVersion" )
+		bumpVersion( false, false, false, true, false, "version" )
+		bumpVersion( false, false, false, true, false, "boxlangVersion" )
+	}
+}
+
+/**
+ * Bump the rc version number
+ */
+task bumpRCVersion {
+	doLast{
+		bumpVersion( false, false, false, false, true, "version" )
+		bumpVersion( false, false, false, false, true, "boxlangVersion" )
 	}
 }

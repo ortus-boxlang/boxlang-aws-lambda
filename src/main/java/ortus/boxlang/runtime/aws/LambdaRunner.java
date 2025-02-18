@@ -23,6 +23,7 @@ import java.util.Map;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amazonaws.services.lambda.runtime.logging.LogLevel;
 
 import ortus.boxlang.runtime.BoxRuntime;
 import ortus.boxlang.runtime.application.BaseApplicationListener;
@@ -318,6 +319,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			    false
 			);
 		} catch ( AbortException e ) {
+
+			if ( this.debugMode ) {
+				logger.log( "AbortException", LogLevel.DEBUG );
+			}
+
 			try {
 				listener.onAbort( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
 			} catch ( Throwable ae ) {
@@ -332,15 +338,26 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		} catch ( Exception e ) {
 			errorToHandle = e;
 		} finally {
+
 			try {
 				listener.onRequestEnd( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
 			} catch ( Throwable e ) {
 				// Opps, an error while handling onRequestEnd
 				errorToHandle = e;
 			}
+
+			// Make sure the buffer is flushed
 			boxContext.flushBuffer( false );
+
+			// If we have an error to handle, do so
 			if ( errorToHandle != null ) {
+
+				// Log it
+				logger.log( errorToHandle.getMessage(), LogLevel.ERROR );
+
 				try {
+					// A return of true means the error has been "handled". False means the default
+					// error handling should be used
 					if ( !listener.onError( boxContext, new Object[] { errorToHandle, "", eventStruct, context } ) ) {
 						throw errorToHandle;
 					}
@@ -350,6 +367,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 					ExceptionUtil.throwException( t );
 				}
 			}
+
 			boxContext.flushBuffer( false );
 		}
 
