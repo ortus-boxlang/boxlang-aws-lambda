@@ -47,8 +47,8 @@ repositories {
 dependencies {
 	// LOCAL DEVELOPMENT ONLY
 	// CHOOSE THE RIGHT LOCATION FOR YOUR LOCAL DEPENDENCIES
-    implementation files( '../boxlang/build/distributions/boxlang-' + boxlangVersion + '.jar' )
-    implementation files( '../boxlang-web-support/build/distributions/boxlang-web-support-' + boxlangVersion + '.jar' )
+    //implementation files( '../boxlang/build/distributions/boxlang-' + boxlangVersion + '.jar' )
+    //implementation files( '../boxlang-web-support/build/distributions/boxlang-web-support-' + boxlangVersion + '.jar' )
 
 	// Downloaded Dependencies
     implementation files( 'src/test/resources/libs/boxlang-web-support-' + boxlangVersion + '.jar' )
