@@ -47,12 +47,16 @@ repositories {
 dependencies {
 	// LOCAL DEVELOPMENT ONLY
 	// CHOOSE THE RIGHT LOCATION FOR YOUR LOCAL DEPENDENCIES
-    //implementation files( '../boxlang/build/distributions/boxlang-' + boxlangVersion + '.jar' )
-    //implementation files( '../boxlang-web-support/build/distributions/boxlang-web-support-' + boxlangVersion + '.jar' )
+  if ( file( '../boxlang/build/libs/boxlang-' + boxlangVersion + '.jar' ).exists() ) {
+		implementation files( '../boxlang/build/libs/boxlang-' + boxlangVersion + '.jar' )
+		implementation files( '../boxlang-web-support/build/distributions/boxlang-web-support-' + boxlangVersion + '.jar' )
+	} else {
+		// Downloaded Dependencies
+		implementation files( 'src/test/resources/libs/boxlang-web-support-' + boxlangVersion + '.jar' )
+		implementation files( 'src/test/resources/libs/boxlang-' + boxlangVersion + '.jar' )
+	}
 
 	// Downloaded Dependencies
-    implementation files( 'src/test/resources/libs/boxlang-web-support-' + boxlangVersion + '.jar' )
-	implementation files( 'src/test/resources/libs/boxlang-' + boxlangVersion + '.jar' )
 	implementation 'com.amazonaws:aws-lambda-java-core:1.2.3'
     implementation 'org.slf4j:slf4j-nop:2.0.17'
 
