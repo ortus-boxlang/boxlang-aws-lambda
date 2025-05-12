@@ -9,144 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New Features
+
+- [BL-1365](https://ortussolutions.atlassian.net/browse/BL-1365) Add parse\(\) helper methods directly to runtime which returns parse result
+- [BL-1388](https://ortussolutions.atlassian.net/browse/BL-1388) new security configuration item: populateServerSystemScope that can allow or not the population of the server.system scope or not
+
+### Improvements
+
+- [BL-1333](https://ortussolutions.atlassian.net/browse/BL-1333) Create links to BoxLang modules
+- [BL-1351](https://ortussolutions.atlassian.net/browse/BL-1351) match getHTTPTimeString\(\) and default time to now
+- [BL-1358](https://ortussolutions.atlassian.net/browse/BL-1358) Work harder to return partial AST on invalid parse
+- [BL-1363](https://ortussolutions.atlassian.net/browse/BL-1363) Error executing dump template \[/dump/html/BoxClass.bxm\]
+- [BL-1375](https://ortussolutions.atlassian.net/browse/BL-1375) Compat - Move Legacy Date Format Interception to Module-Specific Interception Point
+- [BL-1381](https://ortussolutions.atlassian.net/browse/BL-1381) allow box class to be looped over as collection
+- [BL-1382](https://ortussolutions.atlassian.net/browse/BL-1382) Rework event bus interceptors to accelerate during executions
+- [BL-1383](https://ortussolutions.atlassian.net/browse/BL-1383) Compat - Allow handling of decimals where timespan is used
+- [BL-1387](https://ortussolutions.atlassian.net/browse/BL-1387) Allow Numeric ApplicationTimeout assignment to to be decimal
+
+### Bugs
+
+- [BL-1354](https://ortussolutions.atlassian.net/browse/BL-1354) BoxLang date time not accepted by JDBC as a date object
+- [BL-1359](https://ortussolutions.atlassian.net/browse/BL-1359) contracting path doesn't work if casing of mapping doesn't match casing of abs path
+- [BL-1366](https://ortussolutions.atlassian.net/browse/BL-1366) sessionInvalidate\(\) "Cannot invoke String.length\(\) because "s" is null"
+- [BL-1370](https://ortussolutions.atlassian.net/browse/BL-1370) Some methods not found in java interop
+- [BL-1372](https://ortussolutions.atlassian.net/browse/BL-1372) string functions accepting null
+- [BL-1374](https://ortussolutions.atlassian.net/browse/BL-1374) onMissingTemplate event mystyped as missingtemplate
+- [BL-1377](https://ortussolutions.atlassian.net/browse/BL-1377) fileExists\(\) not working with relative paths
+- [BL-1378](https://ortussolutions.atlassian.net/browse/BL-1378) optional capture groups throw NPE in reReplace\(\)
+- [BL-1379](https://ortussolutions.atlassian.net/browse/BL-1379) array length incorrect for xml nodes
+- [BL-1384](https://ortussolutions.atlassian.net/browse/BL-1384) Numeric Session Timeout Values Should Be Duration of Days  not Seconds
+
 ## [1.0.0] - 2025-04-30
 
-## [1.0.0-rc.3] - 2025-04-03
+[Unreleased]: https://github.com/ortus-boxlang/boxlang-miniserver/compare/v1.0.0...HEAD
 
-## [1.0.0-rc.2] - 2025-03-05
-
-## [1.0.0-rc.1] - 2025-02-18
-
-## [1.0.0-beta27] - 2025-01-31
-
-## Changed
-
-- No more checking if lambda.bx exists on each execution, which accelerates the execution of the lambda runtime.
-
-### Added
-
-- Listener support so you can add an 'Application.bx/cfc' to your lambda runtime and listen to events from the lambda runtime life-cycle.
-- Multi-Function execution support via the `x-bx-function` request header.  This will allow you to build RESTFul APIs with multiple functions in a single Lambda runtime.
-- Modules support. Allow to load modules into Lambda runtimes via the `modules` convention
-- `box.json` support for Lambda runtimes by convention in the lambda root
-- More testing facilities for Lambda runtimes
-
-## [1.0.0-beta26] - 2025-01-18
-
-## [1.0.0-beta25] - 2024-12-13
-
-## [1.0.0-beta24] - 2024-12-02
-
-## [1.0.0-beta23] - 2024-12-02
-
-## [1.0.0-beta22] - 2024-11-23
-
-## [1.0.0-beta21] - 2024-11-01
-
-## [1.0.0-beta20] - 2024-10-25
-
-## [1.0.0-beta19] - 2024-10-18
-
-## [1.0.0-beta18] - 2024-10-11
-
-## [1.0.0-beta17] - 2024-10-04
-
-## [1.0.0-beta16] - 2024-09-27
-
-## [1.0.0-beta15] - 2024-09-20
-
-## [1.0.0-beta14] - 2024-09-13
-
-## [1.0.0-beta13] - 2024-09-06
-
-## [1.0.0-beta12] - 2024-08-30
-
-## [1.0.0-beta11] - 2024-08-23
-
-## [1.0.0-beta10] - 2024-08-16
-
-## [1.0.0-beta9] - 2024-08-09
-
-## [1.0.0-beta8] - 2024-08-02
-
-## [1.0.0-beta7] - 2024-07-26
-
-## [1.0.0-beta6] - 2024-07-19
-
-## [1.0.0-beta5] - 2024-07-12
-
-## [1.0.0-beta4] - 2024-07-05
-
-## [1.0.0-beta3] - 2024-06-28
-
-## [1.0.0-beta2] - 2024-06-21
-
-## [1.0.0-beta1] - 2024-06-14
-
-## [1.0.0] => 2024-APR-05
-
-- First iteration of this module
-
-[1.0.0-beta16]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta16
-
-[1.0.0-beta15]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta14...v1.0.0-beta15
-
-[1.0.0-beta14]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta13...v1.0.0-beta14
-
-[1.0.0-beta13]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta12...v1.0.0-beta13
-
-[1.0.0-beta12]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta11...v1.0.0-beta12
-
-[1.0.0-beta11]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta10...v1.0.0-beta11
-
-[1.0.0-beta10]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta9...v1.0.0-beta10
-
-[1.0.0-beta9]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta8...v1.0.0-beta9
-
-[1.0.0-beta8]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta7...v1.0.0-beta8
-
-[1.0.0-beta7]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta6...v1.0.0-beta7
-
-[1.0.0-beta6]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta5...v1.0.0-beta6
-
-[1.0.0-beta5]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta4...v1.0.0-beta5
-
-[1.0.0-beta4]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta3...v1.0.0-beta4
-
-[1.0.0-beta3]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta2...v1.0.0-beta3
-
-[1.0.0-beta2]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta2...v1.0.0-beta2
-
-[1.0.0-beta1]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/8fdd3e6b7b13ea2f30e758cc876c60714a9a4bc8...v1.0.0-beta1
-
-[Unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0...HEAD
-
-[1.0.0]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0
-
-[1.0.0-rc.3]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-rc.3
-
-[1.0.0-rc.2]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-rc.2
-
-[1.0.0-rc.1]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-rc.1
-
-[1.0.0-beta27]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta27
-
-[1.0.0-beta26]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta26
-
-[1.0.0-beta25]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta25
-
-[1.0.0-beta24]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta24
-
-[1.0.0-beta23]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta23
-
-[1.0.0-beta22]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta22
-
-[1.0.0-beta21]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta21
-
-[1.0.0-beta20]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta20
-
-[1.0.0-beta19]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta19
-
-[1.0.0-beta18]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta18
-
-[1.0.0-beta17]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.0.0-beta15...v1.0.0-beta17
+[1.0.0]: https://github.com/ortus-boxlang/boxlang-miniserver/compare/e31fe4ded229e36b940fea08bef9239588599479...v1.0.0
