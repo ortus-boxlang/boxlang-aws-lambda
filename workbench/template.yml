@@ -1,23 +1,22 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Transform: 'AWS::Serverless-2016-10-31'
-Description: An AWS Lambda application that calls the Lambda API.
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Sample SAM Template for BoxLang
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+# Globals:
+#   Function:
+#     Timeout: 20
+#     MemorySize: 512
+
 Resources:
-  BoxLangTemplate:
-    Type: AWS::Serverless::Function
+  bxFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      CodeUri: ../build/distributions/boxlang-aws-lambda-test-1.0.0.zip
-      Handler: ortus.boxlang.runtime.aws.LambdaRunner
-      Runtime: java17
-      Description: BoxLang Function
-      MemorySize: 1024
-      Timeout: 10
-      # Function's execution role
-      Policies:
-        - AWSLambdaBasicExecutionRole
-        - AWSLambda_ReadOnlyAccess
-        - AWSXrayWriteOnlyAccess
-        - AWSLambdaVPCAccessExecutionRole
-      Tracing: Active
-      Environment:
+      CodeUri: build/distributions/boxlang-aws-lambda-1.0.0.zip
+      Handler: ortus.boxlang.runtime.aws.LambdaRunner::handleRequest
+      Timeout: 15
+      Runtime: java21
+      MemorySize: 128
+      Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
         Variables:
-          BOXLANG_LAMBDA_DEBUG: true
+          PARAM1: VALUE
