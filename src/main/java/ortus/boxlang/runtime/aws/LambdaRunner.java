@@ -36,7 +36,6 @@ import ortus.boxlang.runtime.interop.DynamicObject;
 import ortus.boxlang.runtime.runnables.IClassRunnable;
 import ortus.boxlang.runtime.runnables.RunnableLoader;
 import ortus.boxlang.runtime.scopes.Key;
-import ortus.boxlang.runtime.services.ModuleService;
 import ortus.boxlang.runtime.types.Array;
 import ortus.boxlang.runtime.types.IStruct;
 import ortus.boxlang.runtime.types.Struct;
@@ -160,15 +159,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		// Startup the runtime
 		// Important: We are using the system temp directory for the runtime since we are stateless
 		runtime = BoxRuntime.getInstance( debugMode, configPath, System.getProperty( "java.io.tmpdir" ) );
-
-		// Load Modules by Convention: /var/task/modules if found.
-		Path modulesByConventionPath = Path.of( lambdaRoot, "modules" );
-		if ( modulesByConventionPath.toFile().exists() ) {
-			ModuleService moduleService = runtime.getModuleService();
-			runtime.getConfiguration().modulesDirectory.add( modulesByConventionPath.toString() );
-			moduleService.registerAll();
-			moduleService.activateAll();
-		}
 
 		// Add a shutdown hook to cleanup the runtime
 		Runtime.getRuntime().addShutdownHook( new Thread() {
