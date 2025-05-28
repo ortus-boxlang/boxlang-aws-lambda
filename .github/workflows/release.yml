@@ -252,7 +252,7 @@ jobs:
           then
             ./gradlew bumpPatchVersion --stacktrace --console=plain
           else
-            gradle bumpMinorVersion --stacktrace --console=plain
+            ./gradlew bumpMinorVersion --stacktrace --console=plain
           fi
           git pull
 
