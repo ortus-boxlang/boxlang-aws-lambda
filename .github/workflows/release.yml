@@ -250,7 +250,7 @@ jobs:
         run: |
           if [ $LTS == 'true' ]
           then
-            gradle bumpPatchVersion --stacktrace --console=plain
+            ./gradlew bumpPatchVersion --stacktrace --console=plain
           else
             gradle bumpMinorVersion --stacktrace --console=plain
           fi
