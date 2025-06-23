@@ -110,6 +110,23 @@ shadowJar {
 build.finalizedBy( shadowJar )
 
 /**
+ * Generate checksums for the given file using the specified algorithm
+
+ * @param file The file to generate the checksum for
+ * @param algorithm The algorithm to use (e.g., "SHA-256", "MD5")
+ */
+def generateChecksum( File file, String algorithm ) {
+	def digest = java.security.MessageDigest.getInstance( algorithm )
+	file.eachByte( 4096 ) { bytes, size ->
+		digest.update( bytes, 0, size )
+	}
+	def checksum = digest.digest().collect { String.format( '%02x', it ) }.join()
+
+	def checksumFile = new File( file.parent, "${file.name}.${algorithm.toLowerCase()}" )
+	checksumFile.text = "${checksum}  ${file.name}\n"
+}
+
+/**
  * Publish the artifacts to the local maven repository
  */
 publishing {
@@ -322,11 +339,24 @@ task buildMainZip( type: Zip ) {
 	}
 
 	doLast {
+		// Generate checksums for all zip and jar files in distributions folder
+		file( "build/distributions" ).listFiles().each { file ->
+			if ( file.name.endsWith( '.zip' ) || file.name.endsWith( '.jar' ) ) {
+				generateChecksum( file, 'SHA-256' )
+				generateChecksum( file, 'MD5' )
+			}
+		}
+
 		file( "build/evergreen" ).mkdirs()
 		if( branch == 'development' ){
 			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-snapshot.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+			// Checksums
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar.sha-256" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-snapshot.jar.sha-256" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar.md5" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-snapshot.jar.md5" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
 		} else {
 			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-latest.jar" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar.sha-256" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-latest.jar.sha-256" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
+			Files.copy( file( "build/distributions/boxlang-aws-lambda-${version}.jar.md5" ).toPath(), file( "build/evergreen/boxlang-aws-lambda-latest.jar.md5" ).toPath(), StandardCopyOption.REPLACE_EXISTING )
 		}
 
 		println "+ Main Zip has been created"
