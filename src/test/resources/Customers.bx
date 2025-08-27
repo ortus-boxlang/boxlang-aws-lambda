@@ -10,9 +10,9 @@ class{
 			// API Gateway v2.0 format
 			httpMethod = event.requestContext.http.method;
 		}
-		
+
 		var pathParameters = event.pathParameters ?: {};
-		
+
 		switch( httpMethod ) {
 			case "GET":
 				if( structKeyExists( pathParameters, "id" ) ) {
@@ -21,19 +21,19 @@ class{
 					return getAllCustomers();
 				}
 				break;
-				
+
 			case "DELETE":
 				if( structKeyExists( pathParameters, "id" ) ) {
 					return deleteCustomer( pathParameters.id );
 				}
 				break;
-				
+
 			default:
 				response.statusCode = 405;
 				return { "error": "Method not allowed" };
 		}
 	}
-	
+
 	function getAllCustomers() {
 		return {
 			"message": "Test: Fetching all customers",
@@ -44,7 +44,7 @@ class{
 			"total": 2
 		};
 	}
-	
+
 	function getCustomer( id ) {
 		return {
 			"message": "Test: Fetching customer ##" & id,
@@ -55,7 +55,7 @@ class{
 			}
 		};
 	}
-	
+
 	function deleteCustomer( id ) {
 		return {
 			"message": "Test: Customer ##" & id & " deleted successfully",
