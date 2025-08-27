@@ -200,7 +200,14 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		Map<String, String> env = System.getenv();
 		this.lambdaPath	= lambdaPath;
 		this.debugMode	= debugMode;
-		this.lambdaRoot	= env.getOrDefault( "LAMBDA_TASK_ROOT", DEFAULT_LAMBDA_ROOT );
+
+		// For tests, derive lambdaRoot from the provided lambdaPath parent directory
+		// For production, use environment variable or default
+		if ( lambdaPath.toString().contains( "test/resources" ) ) {
+			this.lambdaRoot = lambdaPath.getParent().toString();
+		} else {
+			this.lambdaRoot = env.getOrDefault( "LAMBDA_TASK_ROOT", DEFAULT_LAMBDA_ROOT );
+		}
 
 		// Check if there is a BOXLANG_LAMBDA_CLASS environment variable and use that
 		// instead
@@ -215,6 +222,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 
 		if ( this.debugMode ) {
 			System.out.println( "Lambda configured with the following path: " + this.lambdaPath );
+			System.out.println( "Lambda root directory: " + this.lambdaRoot );
 		}
 	}
 

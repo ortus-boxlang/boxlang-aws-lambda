@@ -1,0 +1,65 @@
+class{
+
+	function run( event, context, response ){
+		// Handle both API Gateway v1.0 and v2.0 event formats
+		var httpMethod = "GET";
+		if( structKeyExists( event, "httpMethod" ) ) {
+			// API Gateway v1.0 format
+			httpMethod = event.httpMethod;
+		} else if( structKeyExists( event, "requestContext" ) && structKeyExists( event.requestContext, "http" ) ) {
+			// API Gateway v2.0 format
+			httpMethod = event.requestContext.http.method;
+		}
+		
+		var pathParameters = event.pathParameters ?: {};
+		
+		switch( httpMethod ) {
+			case "GET":
+				if( structKeyExists( pathParameters, "id" ) ) {
+					return getCustomer( pathParameters.id );
+				} else {
+					return getAllCustomers();
+				}
+				break;
+				
+			case "DELETE":
+				if( structKeyExists( pathParameters, "id" ) ) {
+					return deleteCustomer( pathParameters.id );
+				}
+				break;
+				
+			default:
+				response.statusCode = 405;
+				return { "error": "Method not allowed" };
+		}
+	}
+	
+	function getAllCustomers() {
+		return {
+			"message": "Test: Fetching all customers",
+			"data": [
+				{ "id": 1, "name": "Test Customer 1", "email": "test1@example.com" },
+				{ "id": 2, "name": "Test Customer 2", "email": "test2@example.com" }
+			],
+			"total": 2
+		};
+	}
+	
+	function getCustomer( id ) {
+		return {
+			"message": "Test: Fetching customer ##" & id,
+			"data": {
+				"id": id,
+				"name": "Test Customer " & id,
+				"email": "test" & id & "@example.com"
+			}
+		};
+	}
+	
+	function deleteCustomer( id ) {
+		return {
+			"message": "Test: Customer ##" & id & " deleted successfully",
+			"deletedId": id
+		};
+	}
+}
