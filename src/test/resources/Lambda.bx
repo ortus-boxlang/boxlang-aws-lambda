@@ -1,11 +1,14 @@
 class{
 
 	function run( event, context, response ){
-		println( "====> Incoming event " & event.toString() );
+		println( "====> Incoming event " );
+		println( event )
+		println( response )
 	}
 
 	function hello( event, context, response ){
-		println( "====> Hello Baby " & event.toString() );
+		println( "====> Hello Baby " );
+		println( event )
 		return "Hello Baby";
 	}
 }

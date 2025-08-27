@@ -85,22 +85,22 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * The Lambda.bx file name by convention, which is where it's expanded by AWS
 	 * Lambda
 	 */
-	protected static final String		DEFAULT_LAMBDA_CLASS	= "/var/task/Lambda.bx";
+	protected static final String						DEFAULT_LAMBDA_CLASS	= "/var/task/Lambda.bx";
 
 	/**
 	 * Default lambda folders as per AWS
 	 */
-	protected static final String		DEFAULT_LAMBDA_ROOT		= "/var/task";
+	protected static final String						DEFAULT_LAMBDA_ROOT		= "/var/task";
 
 	/**
 	 * The header we will use to see if we can execute that method in your lambda
 	 */
-	protected static final Key			BOXLANG_LAMBDA_HEADER	= Key.of( "x-bx-function" );
+	protected static final Key							BOXLANG_LAMBDA_HEADER	= Key.of( "x-bx-function" );
 
 	/**
 	 * Default lambda method
 	 */
-	protected static final Key			DEFAULT_LAMBDA_METHOD	= Key.run;
+	protected static final Key							DEFAULT_LAMBDA_METHOD	= Key.run;
 
 	/**
 	 * -----------------------------------------------------------------------------
@@ -111,27 +111,32 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	/**
 	 * The absolute path to the Lambda.bx file to execute
 	 */
-	protected Path						lambdaPath;
+	protected Path										lambdaPath;
 
 	/**
 	 * Are we in debug mode or not
 	 */
-	protected Boolean					debugMode				= false;
+	protected Boolean									debugMode				= false;
 
 	/**
 	 * The BoxLang config path (if any)
 	 */
-	protected Path						configPath;
+	protected Path										configPath;
 
 	/**
 	 * Lambda Root where it is deployed: /var/task by convention
 	 */
-	protected String					lambdaRoot				= "";
+	protected String									lambdaRoot				= "";
 
 	/**
 	 * The BoxLang runtime
 	 */
-	protected static final BoxRuntime	runtime;
+	protected static final BoxRuntime					runtime;
+
+	/**
+	 * Cache for compiled Lambda classes to avoid recompilation on every invocation
+	 */
+	protected static final Map<String, IClassRunnable>	compiledLambdaCache		= new java.util.concurrent.ConcurrentHashMap<>();
 
 	/**
 	 * Initialize the BoxLang runtime as fast as possible here.
@@ -155,6 +160,9 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		else if ( Path.of( lambdaRoot, "boxlang.json" ).toFile().exists() ) {
 			configPath = Path.of( lambdaRoot, "boxlang.json" ).toString();
 		}
+
+		// Performance optimization: Set JVM properties for Lambda environment
+		System.setProperty( "aws.lambda.runtime.pool", env.getOrDefault( "BOXLANG_LAMBDA_CONNECTION_POOL_SIZE", "2" ) );
 
 		// Startup the runtime
 		// Important: We are using the system temp directory for the runtime since we are stateless
@@ -257,11 +265,14 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @return The response as a JSON string
 	 */
 	public Map<?, ?> handleRequest( Map<String, Object> event, Context context ) {
-		LambdaLogger logger = context.getLogger();
+		LambdaLogger	logger		= context.getLogger();
+		long			startTime	= System.currentTimeMillis();
 
 		// Log the incoming event
 		if ( this.debugMode ) {
 			logger.log( "Lambda firing with incoming event: " + event );
+			logger.log( "Lambda memory limit: " + context.getMemoryLimitInMB() + "MB" );
+			logger.log( "Lambda remaining time: " + context.getRemainingTimeInMillis() + "ms" );
 		}
 
 		// Prep a response struct
@@ -291,11 +302,9 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		IStruct		eventStruct		= Struct.fromMap( event );
 
 		try {
-			// Compile + Get the Lambda Class
-			IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
-			    RunnableLoader.getInstance().loadClass( resolvedLambdaPath, boxContext ) )
-			    .invokeConstructor( boxContext )
-			    .getTargetInstance();
+			// Compile + Get the Lambda Class with caching
+			IClassRunnable lambda = getOrCompileLambda( resolvedLambdaPath, boxContext );
+
 			// Discover the intended lambda method to execute
 			Key lambdaMethod = getLambdaMethod( eventStruct, context );
 
@@ -366,6 +375,13 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			response.put( "body", lambdaResult );
 		}
 
+		// Log performance metrics if in debug mode
+		if ( this.debugMode ) {
+			long executionTime = System.currentTimeMillis() - startTime;
+			logger.log( "Lambda execution time: " + executionTime + "ms" );
+			logger.log( "Lambda remaining time after execution: " + context.getRemainingTimeInMillis() + "ms" );
+		}
+
 		// Lambdas marshall the Map to a JSON string
 		return response;
 	}
@@ -391,5 +407,40 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		}
 
 		return lambdaMethod;
+	}
+
+	/**
+	 * Get or compile the Lambda class with caching to improve performance
+	 *
+	 * @param resolvedLambdaPath The resolved path to the Lambda file
+	 * @param boxContext         The BoxLang context
+	 *
+	 * @return The compiled Lambda class instance
+	 */
+	private IClassRunnable getOrCompileLambda( ResolvedFilePath resolvedLambdaPath, IBoxContext boxContext ) {
+		String			lambdaKey		= resolvedLambdaPath.absolutePath().toString();
+
+		// Check if we already have this Lambda compiled and cached
+		IClassRunnable	cachedLambda	= compiledLambdaCache.get( lambdaKey );
+		if ( cachedLambda != null ) {
+			if ( this.debugMode ) {
+				System.out.println( "Using cached Lambda class for: " + lambdaKey );
+			}
+			return cachedLambda;
+		}
+
+		// Compile the Lambda class
+		if ( this.debugMode ) {
+			System.out.println( "Compiling Lambda class for: " + lambdaKey );
+		}
+
+		IClassRunnable lambda = ( IClassRunnable ) DynamicObject.of(
+		    RunnableLoader.getInstance().loadClass( resolvedLambdaPath, boxContext )
+		).invokeConstructor( boxContext ).getTargetInstance();
+
+		// Cache it for future use
+		compiledLambdaCache.put( lambdaKey, lambda );
+
+		return lambda;
 	}
 }

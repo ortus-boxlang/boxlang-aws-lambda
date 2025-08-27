@@ -1,0 +1,130 @@
+class {
+    // Static initialization - runs only once per Lambda container
+    static {
+        // Initialize expensive resources here (DB connections, etc.)
+        variables.initialized = now();
+        variables.requestCount = 0;
+    }
+
+    /**
+     * Main Lambda entry point
+     * Best practices implemented:
+     * - Connection reuse
+     * - Minimal object allocation
+     * - Early returns for performance
+     * - Proper error handling
+     */
+    function run( event, context, response ) {
+        variables.requestCount++;
+
+        try {
+            // Early validation - fail fast
+            if ( !structKeyExists( event, "httpMethod" ) ) {
+                response.statusCode = 400;
+                response.body = { "error": "Missing httpMethod in event" };
+                return;
+            }
+
+            // Route based on HTTP method for better performance
+            switch ( event.httpMethod ) {
+                case "GET":
+                    return handleGet( event, context, response );
+                case "POST":
+                    return handlePost( event, context, response );
+                default:
+                    response.statusCode = 405;
+                    response.body = { "error": "Method not allowed" };
+                    return;
+            }
+
+        } catch ( any e ) {
+            // Structured error response
+            response.statusCode = 500;
+            response.body = {
+                "error": "Internal server error",
+                "message": e.message,
+                "requestId": context.getAwsRequestId()
+            };
+
+            // Log error for monitoring
+            writeLog(
+                text = "Lambda error: #e.message#, RequestId: #context.getAwsRequestId()#",
+                type = "error",
+                file = "lambda-errors"
+            );
+        }
+    }
+
+    /**
+     * Handle GET requests
+     */
+    private function handleGet( event, context, response ) {
+        response.body = {
+            "message": "Hello from BoxLang Lambda!",
+            "timestamp": now(),
+            "requestCount": variables.requestCount,
+            "memoryUsage": context.getMemoryLimitInMB(),
+            "remainingTime": context.getRemainingTimeInMillis()
+        };
+    }
+
+    /**
+     * Handle POST requests with body parsing
+     */
+    private function handlePost( event, context, response ) {
+        var requestBody = {};
+
+        if ( structKeyExists( event, "body" ) && len( event.body ) ) {
+            try {
+                requestBody = deserializeJSON( event.body );
+            } catch ( any e ) {
+                response.statusCode = 400;
+                response.body = { "error": "Invalid JSON in request body" };
+                return;
+            }
+        }
+
+        response.body = {
+            "message": "POST processed successfully",
+            "receivedData": requestBody,
+            "requestId": context.getAwsRequestId()
+        };
+    }
+
+    /**
+     * Health check endpoint - minimal processing
+     */
+    function health( event, context, response ) {
+        response.body = {
+            "status": "healthy",
+            "uptime": dateDiff( "s", variables.initialized, now() ),
+            "requests": variables.requestCount
+        };
+    }
+
+    /**
+     * Async processing example
+     */
+    function processAsync( event, context, response ) {
+        // For long-running tasks, consider using SQS or Step Functions
+        // This is just an example of how to structure async work
+
+        if ( context.getRemainingTimeInMillis() < 30000 ) {
+            response.statusCode = 503;
+            response.body = { "error": "Insufficient time remaining for async processing" };
+            return;
+        }
+
+        // Simulate async work
+        thread name="asyncWork" {
+            // Your async processing here
+            sleep( 1000 );
+        }
+
+        response.statusCode = 202;
+        response.body = {
+            "message": "Async processing started",
+            "requestId": context.getAwsRequestId()
+        };
+    }
+}

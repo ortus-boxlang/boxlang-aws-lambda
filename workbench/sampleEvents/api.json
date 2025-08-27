@@ -3,10 +3,14 @@
 	"routeKey": "$default",
 	"rawPath": "/my/path",
 	"rawQueryString": "parameter1=value1&parameter1=value2&parameter2=value",
-	"cookies": ["cookie1", "cookie2"],
+	"cookies": [
+		"cookie1",
+		"cookie2"
+	],
 	"headers": {
 		"header1": "value1",
-		"header2": "value1,value2"
+		"header2": "value1,value2",
+		"x-bx-function": "run"
 	},
 	"queryStringParameters": {
 		"parameter1": "value1,value2",
@@ -14,7 +18,7 @@
 	},
 	"requestContext": {
 		"accountId": "123456789012",
-		"apiId": "<urlid>",
+		"apiId": "api-id",
 		"authentication": null,
 		"authorizer": {
 			"iam": {
@@ -27,8 +31,8 @@
 				"userId": "AIDA..."
 			}
 		},
-		"domainName": "<url-id>.lambda-url.us-west-2.on.aws",
-		"domainPrefix": "<url-id>",
+		"domainName": "id.lambda-url.us-west-2.on.aws",
+		"domainPrefix": "id",
 		"http": {
 			"method": "POST",
 			"path": "/my/path",
@@ -42,8 +46,9 @@
 		"time": "12/Mar/2020:19:03:58 +0000",
 		"timeEpoch": 1583348638390
 	},
-	"body": "Hello from client!",
+	"body": "{\"message\": \"Hello from BoxLang Lambda!\", \"timestamp\": \"2025-08-27T12:00:00Z\"}",
 	"pathParameters": null,
 	"isBase64Encoded": false,
-	"stageVariables": null
+	"stageVariables": null,
+	"httpMethod": "POST"
 }

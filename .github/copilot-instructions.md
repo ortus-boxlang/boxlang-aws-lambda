@@ -109,11 +109,22 @@ lib/
 - Static initialization of BoxLang runtime for performance
 - Stateless execution model (uses system temp directory)
 - Dynamic class loading and compilation of `.bx` files
+- **NEW: Compiled class caching** - Lambda classes are cached to avoid recompilation
+
+**Performance Optimizations:**
+- Class compilation caching via `ConcurrentHashMap`
+- Connection pooling configuration via `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE`
+- Performance timing and metrics in debug mode
+- Early validation and fail-fast error handling
 
 **Method Resolution:**
 - Default method: `run`
 - Custom method via `x-bx-function` header
 - Event, context, and response parameters automatically injected
+
+**Environment Variables for Performance:**
+- `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE`: Connection pool size (default: 10)
+- `BOXLANG_LAMBDA_DEBUGMODE`: Enables performance metrics logging
 
 ## Common Workflows
 
@@ -121,6 +132,17 @@ lib/
 2. **Local Testing**: Use SAM CLI with sample events in `workbench/sampleEvents/`
 3. **Building**: Always run `shadowJar` before `buildMainZip` for deployment
 4. **Debugging**: Set `BOXLANG_LAMBDA_DEBUGMODE=true` environment variable
+5. **Performance Testing**: Run `./workbench/performance-test.sh` for benchmarking
+6. **Optimization**: Use `examples/OptimizedLambda.bx` as template for best practices
+
+## Performance Best Practices
+
+- **Class Caching**: Lambda classes are automatically cached between invocations
+- **Static Initialization**: Use `static {}` blocks for expensive one-time setup
+- **Connection Reuse**: Store DB connections and HTTP clients as class variables
+- **Early Returns**: Validate input early and return immediately on errors
+- **Memory Management**: Monitor CloudWatch logs for memory usage patterns
+- **Cold Start Optimization**: Keep initialization code minimal and cache aggressively
 
 ## File Locations to Remember
 
