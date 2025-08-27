@@ -123,7 +123,7 @@ lib/
 - Event, context, and response parameters automatically injected
 
 **Environment Variables for Performance:**
-- `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE`: Connection pool size (default: 10)
+- `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE`: Connection pool size (default: 2)
 - `BOXLANG_LAMBDA_DEBUGMODE`: Enables performance metrics logging
 
 ## Common Workflows
