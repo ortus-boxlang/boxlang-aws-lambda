@@ -1,0 +1,24 @@
+{
+	"version": "2.0",
+	"routeKey": "GET /user-profiles",
+	"rawPath": "/user-profiles",
+	"rawQueryString": "",
+	"headers": {
+		"accept": "application/json",
+		"host": "abcdef123.execute-api.us-east-1.amazonaws.com"
+	},
+	"requestContext": {
+		"accountId": "123456789012",
+		"apiId": "abcdef123",
+		"http": {
+			"method": "GET",
+			"path": "/user-profiles",
+			"protocol": "HTTP/1.1",
+			"sourceIp": "203.0.113.12"
+		},
+		"requestId": "abc123def456",
+		"routeKey": "GET /user-profiles",
+		"stage": "$default"
+	},
+	"isBase64Encoded": false
+}

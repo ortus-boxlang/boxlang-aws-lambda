@@ -42,6 +42,7 @@ import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.AbortException;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
 import ortus.boxlang.runtime.types.exceptions.ExceptionUtil;
+import ortus.boxlang.runtime.types.util.StringUtil;
 import ortus.boxlang.runtime.util.FileSystemUtil;
 import ortus.boxlang.runtime.util.ResolvedFilePath;
 
@@ -285,8 +286,16 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		    "cookies", new Array()
 		);
 
+		// Convert the incoming event as a BoxLang struct first
+		IStruct					eventStruct					= Struct.fromMap( event );
+
 		// Prepare an execution context and do full Application.bx life-cycle checks
-		ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( lambdaPath );
+		// First, try to resolve class from URI path if URI routing is enabled
+		String					uriPath						= extractUriPath( eventStruct );
+		Path					resolvedClassPath			= resolveClassFromUri( uriPath, this.lambdaRoot );
+		Path					finalLambdaPath				= resolvedClassPath != null ? resolvedClassPath : lambdaPath;
+
+		ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( finalLambdaPath );
 		String					resolvedLambdaPathString	= resolvedLambdaPath.absolutePath().toString();
 		IBoxContext				boxContext					= new ScriptingRequestBoxContext(
 		    runtime.getRuntimeContext(),
@@ -298,8 +307,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		RequestBoxContext.setCurrent( boxContext.getParentOfType( RequestBoxContext.class ) );
 		Throwable	errorToHandle	= null;
 		Object		lambdaResult	= null;
-		// Convert the incoming event as a BoxLang struct
-		IStruct		eventStruct		= Struct.fromMap( event );
 
 		try {
 			// Compile + Get the Lambda Class with caching
@@ -407,6 +414,102 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		}
 
 		return lambdaMethod;
+	}
+
+	/**
+	 * Extract the URI path from various AWS event types
+	 * Supports API Gateway, Lambda Function URLs, ALB, and direct invocations
+	 *
+	 * @param event The incoming event
+	 *
+	 * @return The URI path or null if not found/applicable
+	 */
+	public String extractUriPath( IStruct event ) {
+		// Check for API Gateway v2.0 format (HTTP API)
+		if ( event.containsKey( "requestContext" ) ) {
+			IStruct requestContext = StructCaster.cast( event.get( "requestContext" ) );
+
+			// API Gateway v2.0 (HTTP API)
+			if ( requestContext.containsKey( "http" ) ) {
+				IStruct httpContext = StructCaster.cast( requestContext.get( "http" ) );
+				if ( httpContext.containsKey( "path" ) ) {
+					return StringCaster.cast( httpContext.get( "path" ) );
+				}
+			}
+
+			// API Gateway v1.0 (REST API) - check for resourcePath
+			if ( requestContext.containsKey( "resourcePath" ) ) {
+				return StringCaster.cast( requestContext.get( "resourcePath" ) );
+			}
+		}
+
+		// Check for Lambda Function URL format
+		if ( event.containsKey( "requestContext" ) ) {
+			IStruct requestContext = StructCaster.cast( event.get( "requestContext" ) );
+			if ( requestContext.containsKey( "domainName" ) && event.containsKey( "rawPath" ) ) {
+				return StringCaster.cast( event.get( "rawPath" ) );
+			}
+		}
+
+		// Check for ALB (Application Load Balancer) format
+		if ( event.containsKey( "requestContext" ) ) {
+			IStruct requestContext = StructCaster.cast( event.get( "requestContext" ) );
+			if ( requestContext.containsKey( "elb" ) && event.containsKey( "path" ) ) {
+				return StringCaster.cast( event.get( "path" ) );
+			}
+		}
+
+		// Direct path check for API Gateway v1.0
+		if ( event.containsKey( "path" ) ) {
+			return StringCaster.cast( event.get( "path" ) );
+		}
+
+		return null;
+	}
+
+	/**
+	 * Resolve the BoxLang class path based on the URI path
+	 * Converts URI paths like "/products", "/customers/123" to class files like "Products.bx", "Customers.bx"
+	 *
+	 * @param uriPath    The URI path from the request
+	 * @param lambdaRoot The root directory where BoxLang classes are located
+	 *
+	 * @return The resolved Path to the BoxLang class file, or null if path is invalid
+	 */
+	public Path resolveClassFromUri( String uriPath, String lambdaRoot ) {
+		if ( uriPath == null || uriPath.isEmpty() || uriPath.equals( "/" ) ) {
+			return null;
+		}
+
+		// Remove leading slash and extract the first segment
+		String		cleanPath		= uriPath.startsWith( "/" ) ? uriPath.substring( 1 ) : uriPath;
+
+		// Split by "/" and take the first segment (resource name)
+		String[]	pathSegments	= cleanPath.split( "/" );
+		if ( pathSegments.length == 0 || pathSegments[ 0 ].isEmpty() ) {
+			return null;
+		}
+
+		// Convert first segment to PascalCase for class name
+		String	resourceName	= pathSegments[ 0 ];
+		String	className		= StringUtil.pascalCase( resourceName ) + ".bx";
+
+		// Construct the full path
+		Path	classPath		= Path.of( lambdaRoot, className );
+
+		// Check if the file exists
+		if ( classPath.toFile().exists() ) {
+			if ( this.debugMode ) {
+				System.out.println( "URI routing: " + uriPath + " -> " + classPath );
+			}
+			return classPath.toAbsolutePath();
+		}
+
+		if ( this.debugMode ) {
+			System.out.println( "URI routing: Class not found for " + uriPath + " (looked for " + classPath + ")" );
+		}
+
+		return null;
 	}
 
 	/**

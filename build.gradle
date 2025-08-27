@@ -347,6 +347,11 @@ shadowJar.finalizedBy( buildTestZip )
 task buildMainZip( type: Zip ) {
 	archiveFileName = "${project.name}-${version}.zip"
 	from 'src/main/resources/Lambda.bx'
+	// Include all .bx files from resources for URI routing
+	from( 'src/main/resources' ) {
+		include '*.bx'
+		exclude 'Lambda.bx' // Don't duplicate Lambda.bx
+	}
 	into( 'lib' ) {
 		from shadowJar.outputs.files
 	}

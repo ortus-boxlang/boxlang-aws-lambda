@@ -20,6 +20,13 @@
 
 This repository contains the **core AWS Lambda Runtime** for the BoxLang language. This runtime acts as a bridge between AWS Lambda's Java 21 runtime and BoxLang's dynamic language features, enabling BoxLang code execution in serverless environments.
 
+**✨ Key Features:**
+
+- **🎯 Automatic URI Routing** - Route requests to specific BoxLang classes based on URI paths
+- **⚡ Performance Optimized** - Class compilation caching and connection pooling
+- **🔄 Multiple Event Sources** - API Gateway, Function URLs, ALB, and direct invocations
+- **🧪 Developer Friendly** - Hot reloading, comprehensive debugging, and local testing
+
 > 💡 **For creating Lambda projects**: Use our [BoxLang AWS Lambda Template](https://github.com/ortus-boxlang/bx-aws-lambda-template) to quickly bootstrap new serverless applications.
 
 ## 🏗️ Architecture Overview
@@ -34,10 +41,109 @@ The runtime consists of:
 ### 🔄 Runtime Flow
 
 1. **Static Initialization** - BoxLang runtime loads once per Lambda container
-2. **Class Compilation** - `.bx` files are compiled and cached for performance
-3. **Method Resolution** - Discovers target method via convention or `x-bx-function` header
-4. **Application Lifecycle** - Full Application.bx lifecycle with onRequestStart/End
-5. **Response Marshalling** - Converts BoxLang responses to Lambda-compatible JSON
+2. **URI-based Class Resolution** - Automatically routes requests to specific BoxLang classes based on URI path
+3. **Class Compilation** - `.bx` files are compiled and cached for performance
+4. **Method Resolution** - Discovers target method via convention or `x-bx-function` header
+5. **Application Lifecycle** - Full Application.bx lifecycle with onRequestStart/End
+6. **Response Marshalling** - Converts BoxLang responses to Lambda-compatible JSON
+
+## 🎯 URI-Based Routing
+
+The runtime supports **automatic class routing** based on incoming URI paths, making it easy to build multi-resource APIs without configuration.
+
+### How It Works
+
+When a request comes in, the runtime:
+
+1. **Extracts the URI path** from various event types (API Gateway, Function URLs, ALB)
+2. **Converts the first path segment** to PascalCase using BoxLang's built-in StringUtil
+3. **Looks for a matching `.bx` class** in the Lambda deployment root
+4. **Falls back to `Lambda.bx`** if no specific class is found
+
+### URI to Class Mapping Examples
+
+| Incoming URI | BoxLang Class | Description |
+|--------------|---------------|-------------|
+| `/products` | `Products.bx` | Product management endpoints |
+| `/customers` | `Customers.bx` | Customer management endpoints |
+| `/user-profiles` | `UserProfiles.bx` | Handles hyphenated URIs |
+| `/api_endpoints` | `ApiEndpoints.bx` | Handles underscored URIs |
+| `/orders/123` | `Orders.bx` | Routes based on first segment only |
+| `/unknown/path` | `Lambda.bx` | Falls back to default when class not found |
+
+### Creating Route Classes
+
+Simply create a `.bx` file with the PascalCase name of your resource:
+
+```boxlang
+// Products.bx - Handles all /products/* requests
+class {
+    function run( event, context, response ) {
+        var httpMethod = event.requestContext?.http?.method ?: event.httpMethod ?: "GET";
+        var pathParameters = event.pathParameters ?: {};
+
+        switch( httpMethod ) {
+            case "GET":
+                if( structKeyExists( pathParameters, "id" ) ) {
+                    return getProduct( pathParameters.id );
+                } else {
+                    return getAllProducts();
+                }
+                break;
+            case "POST":
+                return createProduct( event.body );
+                break;
+            // ... handle other HTTP methods
+        }
+    }
+
+    private function getAllProducts() {
+        return {
+            "message": "Fetching all products",
+            "data": [
+                { "id": 1, "name": "Product 1", "price": 29.99 }
+            ]
+        };
+    }
+
+    private function getProduct( id ) {
+        return {
+            "message": "Fetching product ##" & id,
+            "data": { "id": id, "name": "Product " & id }
+        };
+    }
+}
+```
+
+### Multi-Method Support
+
+You can still use the `x-bx-function` header to call specific methods within your route classes:
+
+```bash
+# Call the 'run' method (default)
+curl -X GET /products
+
+# Call a custom method
+curl -X GET /products -H "x-bx-function: getActiveProducts"
+```
+
+### Event Type Support
+
+URI routing works with all AWS event sources:
+
+- **API Gateway v1.0** (REST API) - Uses `path` field
+- **API Gateway v2.0** (HTTP API) - Uses `requestContext.http.path` field
+- **Lambda Function URLs** - Uses `rawPath` field
+- **Application Load Balancer** - Uses `path` field with `requestContext.elb`
+- **Direct Invocations** - Falls back to `Lambda.bx`
+
+### Benefits
+
+- **🚀 Zero Configuration** - Just create `.bx` files, no routing setup required
+- **📁 Clean Organization** - Separate classes for different resources/domains
+- **🔄 Backward Compatible** - Existing `Lambda.bx` files continue to work
+- **⚡ Performance Optimized** - Classes are compiled once and cached
+- **🧪 Easy Testing** - Test individual resource classes in isolation
 
 ## 🛠️ Development Setup
 
@@ -107,9 +213,11 @@ Key build tasks:
 
 - `build` - Builds, tests and packages
 - `shadowJar` - Creates fat JAR with all dependencies
-- `buildMainZip` - Packages deployable Lambda runtime + sample
+- `buildMainZip` - Packages deployable Lambda runtime + sample + all `.bx` route classes
 - `buildTestZip` - Creates test package for validation
 - `spotlessApply` - Code formatting and linting
+
+**Note:** The build system automatically includes all `.bx` files from `src/main/resources/` in the deployment package to support URI routing.
 
 ## 🔬 Testing Infrastructure
 
@@ -117,10 +225,19 @@ Key build tasks:
 
 The `workbench/sampleEvents/` directory contains test payloads:
 
+**Core Events:**
+
 - `api.json` - API Gateway integration event
 - `event.json` - Simple Lambda event
 - `health.json` - Health check event
 - `large-payload.json` - Large payload stress test
+
+**URI Routing Examples:**
+
+- `products-get-all.json` - GET `/products` → Routes to `Products.bx`
+- `products-get-one.json` - GET `/products/123` → Routes to `Products.bx` with ID parameter
+- `customers-get-all.json` - GET `/customers` → Routes to `Customers.bx`
+- `user-profiles-test.json` - GET `/user-profiles` → Routes to `UserProfiles.bx` (hyphenated example)
 
 ### Unit Tests
 
@@ -133,14 +250,23 @@ Tests are located in `src/test/java/ortus/boxlang/runtime/aws/`:
 ### Local Testing with SAM
 
 ```bash
-# Test API Gateway event
+# Test traditional Lambda.bx (fallback behavior)
 sam local invoke bxFunction --event=workbench/sampleEvents/api.json
 
-# Test with debug logging
-sam local invoke bxFunction --event=workbench/sampleEvents/api.json --debug
+# Test URI routing to Products.bx
+sam local invoke bxFunction --event=workbench/sampleEvents/products-get-all.json
 
-# Performance benchmarking
-sam local invoke bxFunction --event=workbench/sampleEvents/large-payload.json
+# Test URI routing to Customers.bx
+sam local invoke bxFunction --event=workbench/sampleEvents/customers-get-all.json
+
+# Test URI routing with path parameters
+sam local invoke bxFunction --event=workbench/sampleEvents/products-get-one.json
+
+# Test hyphenated URI routing (user-profiles → UserProfiles.bx)
+sam local invoke bxFunction --event=workbench/sampleEvents/user-profiles-test.json
+
+# Test with debug logging
+sam local invoke bxFunction --event=workbench/sampleEvents/products-get-all.json --debug
 ```
 
 ## ⚡ Performance Optimizations
@@ -221,6 +347,16 @@ The runtime automatically handles BoxLang dependencies:
 - **Performance First** - Consider Lambda cold start implications
 - **Documentation** - Update relevant docs and comments
 - **Testing** - Add tests for new functionality
+
+### URI Routing Development
+
+When working on URI routing features:
+
+- **Use BoxLang Built-ins** - Leverage `ortus.boxlang.runtime.types.util.StringUtil` for string operations
+- **Test All Event Types** - Ensure compatibility with API Gateway v1/v2, Function URLs, and ALB
+- **Handle Edge Cases** - Test with various URI patterns (hyphens, underscores, nested paths)
+- **Maintain Fallback** - Always ensure `Lambda.bx` fallback behavior works
+- **Add Sample Events** - Create corresponding test events in `workbench/sampleEvents/`
 
 ### Debugging Runtime Issues
 
