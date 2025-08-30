@@ -1,4 +1,4 @@
-package ortus.boxlang.runtime.aws;
+package ortus.boxlang.runtime.aws.mocks;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

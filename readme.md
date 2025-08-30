@@ -16,34 +16,402 @@
 
 <p>&nbsp;</p>
 
-## Welcome to the BoxLang AWS Lambda Runtime
+## 🚀 Welcome to the BoxLang AWS Lambda Runtime
 
-This repository contains the AWS Lambda Runtime for the BoxLang language. This runtime allows you to run BoxLang code in AWS Lambda functions. The runtime is built using the AWS Lambda Custom Runtime API and the BoxLang interpreter.  You can find the full docs here: https://boxlang.ortusbooks.com/getting-started/running-boxlang/aws-lambda
+This repository contains the **core AWS Lambda Runtime** for the BoxLang language. This runtime acts as a bridge between AWS Lambda's Java 21 runtime and BoxLang's dynamic language features, enabling BoxLang code execution in serverless environments.
 
-## What is BoxLang?
+**✨ Key Features:**
 
-**BoxLang** is a modern dynamic JVM language that can be deployed on multiple runtimes: operating system (Windows/Mac/*nix/Embedded), web server, lambda, iOS, android, web assembly, and more. **BoxLang** combines many features from different programming languages, including Java, ColdFusion, Python, Ruby, Go, and PHP, to provide developers with a modern and expressive syntax.
+- **🎯 Automatic URI Routing** - Route requests to specific BoxLang classes based on URI paths
+- **⚡ Performance Optimized** - Class compilation caching and connection pooling
+- **🔄 Multiple Event Sources** - API Gateway, Function URLs, ALB, and direct invocations
+- **🧪 Developer Friendly** - Hot reloading, comprehensive debugging, and local testing
 
-**BoxLang** has been designed to be a highly adaptable and dynamic language to take advantage of all the modern features of the JVM and was designed with several goals in mind:
+> 💡 **For creating Lambda projects**: Use our [BoxLang AWS Lambda Template](https://github.com/ortus-boxlang/bx-aws-lambda-template) to quickly bootstrap new serverless applications.
 
-* Be a rapid application development (RAD) scripting language and middleware.
-* Unstagnate the dynamic language ecosystem in Java.
-* Be dynamic, modular, lightweight, and fast.
-* Be 100% interoperable with Java.
-* Be modern, functional, and fluent (Think mixing CFML, Node, Kotlin, Java, and Clojure)
-* Be able to support multiple runtimes and deployment targets:
-  * Native OS Binaries (CLI Tooling, compilers, etc.)
-  * MiniServer
-  * Servlet Containers - CommandBox/Tomcat/Jetty/JBoss
-  * JSR223 Scripting Engines
-  * AWS Lambda
-  * Microsoft Azure Functions (Coming Soon)
-  * Android/iOS Devices (Coming Soon)
-  * Web assembly (Coming Soon)
-* Compile down to Java ByteCode
-* Allow backward compatibility with the existing ColdFusion/CFML language.
-* Great IDE, Debugger and Tooling: https://boxlang.ortusbooks.com/getting-started/ide-tooling
-* Scripting (Any OS and Shebang) and REPL capabilities
+## 🏗️ Architecture Overview
+
+The runtime consists of:
+
+- **`ortus.boxlang.runtime.aws.LambdaRunner`** - Main AWS Lambda RequestHandler
+- **Dynamic Class Compilation** - Compiles `.bx` files on-demand with intelligent caching
+- **Convention-based Execution** - Executes `Lambda.bx` files via the `run()` method
+- **Flexible Response Handling** - Supports both direct returns and response struct population
+
+### 🔄 Runtime Flow
+
+1. **Static Initialization** - BoxLang runtime loads once per Lambda container
+2. **URI-based Class Resolution** - Automatically routes requests to specific BoxLang classes based on URI path
+3. **Class Compilation** - `.bx` files are compiled and cached for performance
+4. **Method Resolution** - Discovers target method via convention or `x-bx-function` header
+5. **Application Lifecycle** - Full Application.bx lifecycle with onRequestStart/End
+6. **Response Marshalling** - Converts BoxLang responses to Lambda-compatible JSON
+
+## 🎯 URI-Based Routing
+
+The runtime supports **automatic class routing** based on incoming URI paths, making it easy to build multi-resource APIs without configuration.
+
+### How It Works
+
+When a request comes in, the runtime:
+
+1. **Extracts the URI path** from various event types (API Gateway, Function URLs, ALB)
+2. **Converts the first path segment** to PascalCase using BoxLang's built-in StringUtil
+3. **Looks for a matching `.bx` class** in the Lambda deployment root
+4. **Falls back to `Lambda.bx`** if no specific class is found
+
+### URI to Class Mapping Examples
+
+| Incoming URI | BoxLang Class | Description |
+|--------------|---------------|-------------|
+| `/products` | `Products.bx` | Product management endpoints |
+| `/customers` | `Customers.bx` | Customer management endpoints |
+| `/user-profiles` | `UserProfiles.bx` | Handles hyphenated URIs |
+| `/api_endpoints` | `ApiEndpoints.bx` | Handles underscored URIs |
+| `/orders/123` | `Orders.bx` | Routes based on first segment only |
+| `/unknown/path` | `Lambda.bx` | Falls back to default when class not found |
+
+### Creating Route Classes
+
+Simply create a `.bx` file with the PascalCase name of your resource:
+
+```boxlang
+// Products.bx - Handles all /products/* requests
+class {
+    function run( event, context, response ) {
+        var httpMethod = event.requestContext?.http?.method ?: event.httpMethod ?: "GET";
+        var pathParameters = event.pathParameters ?: {};
+
+        switch( httpMethod ) {
+            case "GET":
+                if( structKeyExists( pathParameters, "id" ) ) {
+                    return getProduct( pathParameters.id );
+                } else {
+                    return getAllProducts();
+                }
+                break;
+            case "POST":
+                return createProduct( event.body );
+                break;
+            // ... handle other HTTP methods
+        }
+    }
+
+    private function getAllProducts() {
+        return {
+            "message": "Fetching all products",
+            "data": [
+                { "id": 1, "name": "Product 1", "price": 29.99 }
+            ]
+        };
+    }
+
+    private function getProduct( id ) {
+        return {
+            "message": "Fetching product ##" & id,
+            "data": { "id": id, "name": "Product " & id }
+        };
+    }
+}
+```
+
+### Multi-Method Support
+
+You can still use the `x-bx-function` header to call specific methods within your route classes:
+
+```bash
+# Call the 'run' method (default)
+curl -X GET /products
+
+# Call a custom method
+curl -X GET /products -H "x-bx-function: getActiveProducts"
+```
+
+### Event Type Support
+
+URI routing works with all AWS event sources:
+
+- **API Gateway v1.0** (REST API) - Uses `path` field
+- **API Gateway v2.0** (HTTP API) - Uses `requestContext.http.path` field
+- **Lambda Function URLs** - Uses `rawPath` field
+- **Application Load Balancer** - Uses `path` field with `requestContext.elb`
+- **Direct Invocations** - Falls back to `Lambda.bx`
+
+### Benefits
+
+- **🚀 Zero Configuration** - Just create `.bx` files, no routing setup required
+- **📁 Clean Organization** - Separate classes for different resources/domains
+- **🔄 Backward Compatible** - Existing `Lambda.bx` files continue to work
+- **⚡ Performance Optimized** - Classes are compiled once and cached
+- **🧪 Easy Testing** - Test individual resource classes in isolation
+
+## 🛠️ Development Setup
+
+### Prerequisites
+
+- **Java 21+** - Required for BoxLang runtime
+- **AWS CLI** - For deployment and testing
+- **AWS SAM CLI** - For local development and testing
+- **Docker** - Required by SAM for local Lambda emulation
+
+### Local Development
+
+```bash
+# Clone the runtime repository
+git clone https://github.com/ortus-boxlang/boxlang-aws-lambda.git
+cd boxlang-aws-lambda
+
+# Build the runtime
+./gradlew build shadowJar
+
+# Create deployment packages
+./gradlew buildMainZip buildTestZip
+
+# Run tests
+./gradlew test
+
+# Local testing with SAM
+sam local invoke bxFunction --event=workbench/sampleEvents/api.json
+```
+
+### 🏃‍♂️ Performance Testing
+
+Run comprehensive performance benchmarks:
+
+```bash
+# Execute performance test suite
+./workbench/performance-test.sh
+
+# Quick validation test
+./workbench/simple-test.sh
+```
+
+## 🧩 Core Components
+
+### LambdaRunner.java
+
+The main entry point implementing AWS Lambda's `RequestHandler<Map<String, Object>, Object>`:
+
+- **Static Initialization** - BoxLang runtime loads once per container
+- **Class Caching** - Compiled BoxLang classes cached via `ConcurrentHashMap`
+- **Performance Metrics** - Debug timing for compilation and execution
+- **Connection Pooling** - Configurable connection pool sizes
+
+### Environment Variables
+
+Runtime behavior is controlled via environment variables:
+
+- `BOXLANG_LAMBDA_CLASS` - Override default `Lambda.bx` class path
+- `BOXLANG_LAMBDA_DEBUGMODE` - Enable debug logging and performance metrics
+- `BOXLANG_LAMBDA_CONFIG` - Custom BoxLang configuration path (default: `/var/task/boxlang.json`)
+- `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE` - Connection pool size (default: 2)
+- `LAMBDA_TASK_ROOT` - Lambda deployment root (default: `/var/task`)
+
+### Build System (Gradle)
+
+Key build tasks:
+
+- `build` - Builds, tests and packages
+- `shadowJar` - Creates fat JAR with all dependencies
+- `buildMainZip` - Packages deployable Lambda runtime + sample + all `.bx` route classes
+- `buildTestZip` - Creates test package for validation
+- `spotlessApply` - Code formatting and linting
+
+**Note:** The build system automatically includes all `.bx` files from `src/main/resources/` in the deployment package to support URI routing.
+
+## 🔬 Testing Infrastructure
+
+### Sample Events
+
+The `workbench/sampleEvents/` directory contains test payloads:
+
+**Core Events:**
+
+- `api.json` - API Gateway integration event
+- `event.json` - Simple Lambda event
+- `health.json` - Health check event
+- `large-payload.json` - Large payload stress test
+
+**URI Routing Examples:**
+
+- `products-get-all.json` - GET `/products` → Routes to `Products.bx`
+- `products-get-one.json` - GET `/products/123` → Routes to `Products.bx` with ID parameter
+- `customers-get-all.json` - GET `/customers` → Routes to `Customers.bx`
+- `user-profiles-test.json` - GET `/user-profiles` → Routes to `UserProfiles.bx` (hyphenated example)
+
+### Unit Tests
+
+Tests are located in `src/test/java/ortus/boxlang/runtime/aws/`:
+
+- **LambdaRunnerTest** - Core runtime functionality
+- **Performance Tests** - Class caching and optimization validation
+- **Integration Tests** - Full Lambda lifecycle testing
+
+### Local Testing with SAM
+
+```bash
+# Test traditional Lambda.bx (fallback behavior)
+sam local invoke bxFunction --event=workbench/sampleEvents/api.json
+
+# Test URI routing to Products.bx
+sam local invoke bxFunction --event=workbench/sampleEvents/products-get-all.json
+
+# Test URI routing to Customers.bx
+sam local invoke bxFunction --event=workbench/sampleEvents/customers-get-all.json
+
+# Test URI routing with path parameters
+sam local invoke bxFunction --event=workbench/sampleEvents/products-get-one.json
+
+# Test hyphenated URI routing (user-profiles → UserProfiles.bx)
+sam local invoke bxFunction --event=workbench/sampleEvents/user-profiles-test.json
+
+# Test with debug logging
+sam local invoke bxFunction --event=workbench/sampleEvents/products-get-all.json --debug
+```
+
+## ⚡ Performance Optimizations
+
+### Class Compilation Caching
+
+The runtime implements intelligent caching to avoid recompilation:
+
+```java
+private static final ConcurrentHashMap<String, Class<?>> classCache = new ConcurrentHashMap<>();
+
+private Class<?> getOrCompileLambda(String lambdaClassPath) {
+    return classCache.computeIfAbsent(lambdaClassPath, path -> {
+        // Compilation logic here
+    });
+}
+```
+
+### Performance Metrics
+
+When `BOXLANG_LAMBDA_DEBUGMODE=true`, the runtime logs:
+
+- Compilation time vs cache retrieval
+- Method execution duration
+- Memory usage patterns
+- Connection pool statistics
+
+### Best Practices for Contributors
+
+- **Minimize Cold Start Impact** - Keep static initialization lightweight
+- **Cache Aggressively** - Store expensive computations in static variables
+- **Profile Memory Usage** - Monitor CloudWatch logs for memory patterns
+- **Early Validation** - Fail fast on invalid inputs to reduce execution time
+
+## 🏗️ Build & Deployment
+
+### Creating Runtime Distributions
+
+```bash
+# Build all artifacts
+./gradlew clean build shadowJar buildMainZip buildTestZip
+
+# Artifacts created in build/distributions/:
+# - boxlang-aws-lambda-{version}-all.jar (fat JAR)
+# - boxlang-aws-lambda-{version}.zip (deployable package)
+# - boxlang-aws-lambda-test-{version}.zip (test package)
+```
+
+### Versioning
+
+- **Development Branch** - Versions append `-snapshot`
+- **Release Branches** - Clean semantic versions
+- **Checksums** - SHA-256 and MD5 generated for all artifacts
+
+### Dependencies
+
+The runtime automatically handles BoxLang dependencies:
+
+- **Local Development** - Uses `../boxlang/build/libs/boxlang-*.jar` if available
+- **CI/CD** - Downloads dependencies to `src/test/resources/libs/`
+- **Web Support** - Includes `boxlang-web-support` for HTTP utilities
+
+## 🧪 Contributing Guidelines
+
+### Development Workflow
+
+1. **Fork & Clone** - Create your development environment
+2. **Feature Branch** - Create branch from `development`
+3. **Build & Test** - Ensure all tests pass locally
+4. **Performance Test** - Run performance benchmarks
+5. **Code Quality** - Run `./gradlew spotlessApply` for formatting
+6. **Pull Request** - Target the `development` branch
+
+### Code Standards
+
+- **Java 21** - Use modern Java features appropriately
+- **BoxLang Integration** - Follow BoxLang runtime patterns
+- **Performance First** - Consider Lambda cold start implications
+- **Documentation** - Update relevant docs and comments
+- **Testing** - Add tests for new functionality
+
+### URI Routing Development
+
+When working on URI routing features:
+
+- **Use BoxLang Built-ins** - Leverage `ortus.boxlang.runtime.types.util.StringUtil` for string operations
+- **Test All Event Types** - Ensure compatibility with API Gateway v1/v2, Function URLs, and ALB
+- **Handle Edge Cases** - Test with various URI patterns (hyphens, underscores, nested paths)
+- **Maintain Fallback** - Always ensure `Lambda.bx` fallback behavior works
+- **Add Sample Events** - Create corresponding test events in `workbench/sampleEvents/`
+
+### Debugging Runtime Issues
+
+1. **Enable Debug Mode** - Set `BOXLANG_LAMBDA_DEBUGMODE=true`
+2. **Check CloudWatch Logs** - Look for compilation/execution metrics
+3. **Local SAM Testing** - Use `sam local invoke --debug`
+4. **Unit Test Isolation** - Create focused tests for specific issues
+
+## 📚 Additional Resources
+
+### BoxLang Documentation
+
+- **Main Documentation** - [boxlang.ortusbooks.com](https://boxlang.ortusbooks.com)
+- **AWS Lambda Guide** - [BoxLang Lambda Documentation](https://boxlang.ortusbooks.com/getting-started/running-boxlang/aws-lambda)
+- **IDE Tooling** - [Development Tools](https://boxlang.ortusbooks.com/getting-started/ide-tooling)
+
+### Related Projects
+
+- **Lambda Template** - [bx-aws-lambda-template](https://github.com/ortus-boxlang/bx-aws-lambda-template)
+- **BoxLang Core** - [boxlang](https://github.com/ortus-boxlang/boxlang)
+- **Web Support** - [boxlang-web-support](https://github.com/ortus-boxlang/boxlang-web-support)
+
+---
+
+## 📖 BoxLang Information
+
+BoxLang is a modern, dynamic JVM language that can be deployed on multiple runtimes: operating system (Windows/Mac/*nix/Embedded), web server, lambda, iOS, android, web assembly, etc.
+
+**BoxLang Features:**
+
+- Be a rapid application development (RAD) scripting language and middleware.
+- Unstagnate the dynamic language ecosystem in Java.
+- Be dynamic, modular, lightweight, and fast.
+- Be 100% interoperable with Java.
+- Be modern, functional, and fluent (Think mixing CFML, Node, Kotlin, Java, and Clojure)
+- Be able to support multiple runtimes and deployment targets:
+  - Native OS Binaries (CLI Tooling, compilers, etc.)
+  - MiniServer
+  - Servlet Containers - CommandBox/Tomcat/Jetty/JBoss
+  - JSR223 Scripting Engines
+  - AWS Lambda
+  - Microsoft Azure Functions (Coming Soon)
+  - Android/iOS Devices (Coming Soon)
+  - Web assembly (Coming Soon)
+- Compile down to Java ByteCode
+- Allow backward compatibility with the existing ColdFusion/CFML language.
+- Great IDE, Debugger and Tooling: https://boxlang.ortusbooks.com/getting-started/ide-tooling
+- Scripting (Any OS and Shebang) and REPL capabilities
+
+## 💰 Professional Support & Services
+
+Get professional support, training, and custom development services for your BoxLang applications:
+
+- Professional Support and Priority Queuing
+- Remote Assistance and Troubleshooting
 
 You can find our docs here: https://boxlang.ortusbooks.com/
 
@@ -55,14 +423,43 @@ Apache License, Version 2.0.
 
 This project is a professional open source project and is available as FREE and open source to use.  Ortus Solutions, Corp provides commercial support, training and commercial subscriptions which include the following:
 
-* Professional Support and Priority Queuing
-* Remote Assistance and Troubleshooting
-* New Feature Requests and Custom Development
-* Custom SLAs
-* Application Modernization and Migration Services
-* Performance Audits
-* Enterprise Modules and Integrations
-* Much More
+- Professional Support and Priority Queuing
+- Remote Assistance and Troubleshooting
+- New Feature Requests and Custom Development
+- Custom SLAs
+- Application Modernization and Migration Services
+- Performance Audits
+- Enterprise Modules and Integrations
+- Much More
+
+<p>&nbsp;</p>
+
+<blockquote>
+"We ❤️ Open Source and BoxLang" - Luis Majano
+</blockquote>
+
+---
+
+## ⭐ Star Us
+
+Please star us if this runtime helps you build amazing serverless applications with BoxLang!
+
+---
+
+## 🙏 Sponsors
+
+A huge thanks to our sponsors who help us continue developing BoxLang and its ecosystem:
+
+<div align="center">
+  <a href="https://www.ortussolutions.com"><img src="https://www.ortussolutions.com/__media/ortus-medium.png" alt="Ortus Solutions" width="300"/></a>
+</div>
+
+---
+
+<p align="center">
+  Made with ❤️ by the BoxLang Team<br/>
+  Copyright Since 2023 by <a href="https://www.ortussolutions.com">Ortus Solutions, Corp</a>
+</p>
 
 Visit us at [BoxLang.io Plans](https://boxlang.io/plans) for more information.
 
@@ -163,19 +560,6 @@ class{
 
 }
 ```
-
-## Packaging
-
-In order to deploy your function to AWS Lambda, you need to package the runtime and your BoxLang code into a zip file. The zip file should contain the following structure:
-
-```
-+ Lambda.bx
-/lib
-  + boxlang-aws-lambda-1.0.0.jar
-```
-
-You can use our source template here: https://github.com/ortus-boxlang/boxlang-aws-lambda-template
-to give you a head start in building your serverless applications.
 
 ## Ortus Sponsors
 

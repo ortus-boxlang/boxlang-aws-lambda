@@ -1,0 +1,67 @@
+class{
+
+	function run( event, context, response ){
+		// Handle both API Gateway v1.0 and v2.0 event formats
+		var httpMethod = "GET";
+		if( structKeyExists( event, "httpMethod" ) ) {
+			// API Gateway v1.0 format
+			httpMethod = event.httpMethod;
+		} else if( structKeyExists( event, "requestContext" ) && structKeyExists( event.requestContext, "http" ) ) {
+			// API Gateway v2.0 format
+			httpMethod = event.requestContext.http.method;
+		}
+
+		var pathParameters = event.pathParameters ?: {};
+
+		switch( httpMethod ) {
+			case "GET":
+				if( structKeyExists( pathParameters, "id" ) ) {
+					return getProduct( pathParameters.id );
+				} else {
+					return getAllProducts();
+				}
+				break;
+
+			case "POST":
+				return createProduct( event.body );
+				break;
+
+			default:
+				response.statusCode = 405;
+				return { "error": "Method not allowed" };
+		}
+	}
+
+	function getAllProducts() {
+		return {
+			"message": "Test: Fetching all products",
+			"data": [
+				{ "id": 1, "name": "Test Product 1", "price": 29.99 },
+				{ "id": 2, "name": "Test Product 2", "price": 39.99 }
+			],
+			"total": 2
+		};
+	}
+
+	function getProduct( id ) {
+		return {
+			"message": "Test: Fetching product ##" & id,
+			"data": {
+				"id": id,
+				"name": "Test Product " & id,
+				"price": 29.99
+			}
+		};
+	}
+
+	function createProduct( body ) {
+		return {
+			"message": "Test: Product created successfully",
+			"data": {
+				"id": 999,
+				"name": "New Test Product",
+				"created": true
+			}
+		};
+	}
+}

@@ -1,0 +1,11 @@
+{
+	"name": "BoxLang Lambda Health Check",
+	"message": "Health check request",
+	"timestamp": "2025-08-27T12:00:00Z",
+	"headers": {
+		"Content-Type": "application/json",
+		"x-bx-function": "health"
+	},
+	"httpMethod": "GET",
+	"requestId": "health-check-123"
+}

@@ -1,0 +1,125 @@
+/**
+ * Products API handler for BoxLang AWS Lambda Runtime
+ * This class is automatically loaded when the URI path starts with "/products"
+ */
+class {
+
+    /**
+     * Default handler method for products endpoints
+     *
+     * @param event The AWS Lambda event containing request data
+     * @param context The AWS Lambda context
+     * @param response The response struct that will be returned
+     */
+    function run( event, context, response ) {
+        var httpMethod = event.requestContext?.http?.method ?: event.httpMethod ?: "GET";
+        var pathParameters = event.pathParameters ?: {};
+
+        switch( httpMethod ) {
+            case "GET":
+                if( structKeyExists( pathParameters, "id" ) ) {
+                    return getProduct( pathParameters.id );
+                } else {
+                    return getAllProducts();
+                }
+                break;
+
+            case "POST":
+                return createProduct( event.body );
+                break;
+
+            case "PUT":
+                if( structKeyExists( pathParameters, "id" ) ) {
+                    return updateProduct( pathParameters.id, event.body );
+                } else {
+                    response.statusCode = 400;
+                    return { "error": "Product ID required for update" };
+                }
+                break;
+
+            case "DELETE":
+                if( structKeyExists( pathParameters, "id" ) ) {
+                    return deleteProduct( pathParameters.id );
+                } else {
+                    response.statusCode = 400;
+                    return { "error": "Product ID required for deletion" };
+                }
+                break;
+
+            default:
+                response.statusCode = 405;
+                return { "error": "Method not allowed" };
+        }
+    }
+
+    /**
+     * Get all products
+     */
+    private function getAllProducts() {
+        return {
+            "message": "Fetching all products",
+            "data": [
+                { "id": 1, "name": "Product 1", "price": 29.99 },
+                { "id": 2, "name": "Product 2", "price": 39.99 },
+                { "id": 3, "name": "Product 3", "price": 19.99 }
+            ],
+            "total": 3
+        };
+    }
+
+    /**
+     * Get a specific product by ID
+     */
+    private function getProduct( id ) {
+        return {
+            "message": "Fetching product ##" & id,
+            "data": {
+                "id": id,
+                "name": "Product " & id,
+                "price": 29.99,
+                "description": "This is product number " & id
+            }
+        };
+    }
+
+    /**
+     * Create a new product
+     */
+    private function createProduct( body ) {
+        return {
+            "message": "Product created successfully",
+            "data": {
+                "id": randRange( 1000, 9999 ),
+                "name": "New Product",
+                "price": 49.99,
+                "created": now()
+            }
+        };
+    }
+
+    /**
+     * Update an existing product
+     */
+    private function updateProduct( id, body ) {
+        return {
+            "message": "Product ##" & id & " updated successfully",
+            "data": {
+                "id": id,
+                "name": "Updated Product " & id,
+                "price": 59.99,
+                "updated": now()
+            }
+        };
+    }
+
+    /**
+     * Delete a product
+     */
+    private function deleteProduct( id ) {
+        return {
+            "message": "Product ##" & id & " deleted successfully",
+            "deletedId": id,
+            "deletedAt": now()
+        };
+    }
+}

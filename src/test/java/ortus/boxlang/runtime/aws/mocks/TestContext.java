@@ -1,4 +1,4 @@
-package ortus.boxlang.runtime.aws;
+package ortus.boxlang.runtime.aws.mocks;
 
 import com.amazonaws.services.lambda.runtime.ClientContext;
 import com.amazonaws.services.lambda.runtime.CognitoIdentity;
