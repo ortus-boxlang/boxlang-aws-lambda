@@ -98,8 +98,13 @@ jar {
 }
 shadowJar {
 	archiveClassifier = ""
+
     destinationDirectory = file( "build/distributions" )
+
+	// Configure duplicates strategy and service file merging for Shadow 9.0+
+	duplicatesStrategy = DuplicatesStrategy.INCLUDE
 	mergeServiceFiles()
+
 	exclude "io/undertow/**"
 	exclude "org/jboss/**"
 	exclude "org/wildfly/**"
