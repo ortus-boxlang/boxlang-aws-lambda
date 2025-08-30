@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2025-08-30
+
 ### Fixed
 
 - Fixed issue with shadowJar task not including all necessary files only in AWS Runtime
@@ -43,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * * *
 
-[unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.5.0...HEAD
+[unreleased]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ortus-boxlang/boxlang-aws-lambda/compare/v1.2.0...v1.3.0
