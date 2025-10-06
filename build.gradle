@@ -25,8 +25,6 @@ plugins {
 /**
  * Project Properties
  */
-sourceCompatibility = jdkVersion
-targetCompatibility = jdkVersion
 ext {
 	buildID = System.getenv( 'BUILD_ID' ) ?: '0'
 	branch = System.getenv( 'BRANCH' ) ?: 'development'
@@ -62,7 +60,7 @@ dependencies {
 
     // Testing Dependencies
 	// Pin this for now as there is a problem finding the tests with 5.11.4
-    testImplementation "org.junit.jupiter:junit-jupiter:5.+"
+    testImplementation "org.junit.jupiter:junit-jupiter:6.+"
 	testImplementation "org.mockito:mockito-core:5.+"
 	testImplementation "com.google.truth:truth:1.+"
 	// Explicitly declare the JUnit platform launcher (to avoid deprecation)
@@ -70,6 +68,8 @@ dependencies {
 }
 
 java {
+	sourceCompatibility = JavaVersion.toVersion( jdkVersion )
+	targetCompatibility = JavaVersion.toVersion( jdkVersion )
 	withJavadocJar()
 	withSourcesJar()
 }
@@ -78,7 +78,7 @@ compileJava {
 	// Compiler Options
 	options.incremental = true
 	options.encoding = 'UTF-8'
-	options.debug()
+	options.debug = true
 }
 
 compileTestJava {
@@ -111,6 +111,9 @@ shadowJar {
 	exclude "org/xnio/**"
 	exclude "org/antlr/v4/gui/**"
 	exclude "org/antlr/v4/gui/**"
+
+	// Relocate packages to avoid conflicts due to dumb AWS Lambda Log4j2Patch.
+	relocate 'org.objectweb.asm', 'ortus.boxlang.asm'
 }
 
 /**

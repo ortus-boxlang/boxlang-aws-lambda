@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Relocated `org.objectweb.asm` package to avoid conflicts with AWS Lambda environment.
+
 ## [1.6.0] - 2025-10-03
 
 - <https://boxlang.ortusbooks.com/readme/release-history/1.6.0>
