@@ -167,7 +167,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 
 		// Startup the runtime
 		// Important: We are using the system temp directory for the runtime since we are stateless
-		runtime = BoxRuntime.getInstance( debugMode, configPath, System.getProperty( "java.io.tmpdir" ) );
+		runtime = BoxRuntime.getInstance( debugMode, configPath, System.getProperty( "java.io.tmpdir" ) ).waitForStart();
 
 		// Add a shutdown hook to cleanup the runtime
 		Runtime.getRuntime().addShutdownHook( new Thread() {
