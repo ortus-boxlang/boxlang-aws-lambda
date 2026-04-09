@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- new `KeyDictionary` to track common header keys
+
+### Changes
+
+- Updated the way request context is built as per 1.12 release, to ensure that the correct lambda path is used when URI routing is enabled.
+
 ## [1.12.0] - 2026-04-08
 
 ## [1.11.0] - 2026-03-04

@@ -27,6 +27,7 @@ import com.amazonaws.services.lambda.runtime.logging.LogLevel;
 
 import ortus.boxlang.runtime.BoxRuntime;
 import ortus.boxlang.runtime.application.BaseApplicationListener;
+import ortus.boxlang.runtime.aws.util.KeyDictionary;
 import ortus.boxlang.runtime.context.IBoxContext;
 import ortus.boxlang.runtime.context.RequestBoxContext;
 import ortus.boxlang.runtime.context.ScriptingRequestBoxContext;
@@ -285,36 +286,38 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		}
 
 		// Prep a response struct
-		IStruct					response					= Struct.of(
-		    "statusCode", 200,
-		    "headers", Struct.of(
-		        "Content-Type", "application/json",
-		        "Access-Control-Allow-Origin", "*" ),
-		    "body", "",
-		    "cookies", new Array()
+		IStruct						response					= Struct.of(
+		    Key.statusCode, 200,
+		    Key.headers, Struct.of(
+		        KeyDictionary.contentType, "application/json",
+		        KeyDictionary.accessControlAllowOrigin, "*" ),
+		    Key.body, "",
+		    Key.cookies, new Array()
 		);
 
 		// Convert the incoming event as a BoxLang struct first
-		IStruct					eventStruct					= Struct.fromMap( event );
+		IStruct						eventStruct					= Struct.fromMap( event );
 
 		// Prepare an execution context and do full Application.bx life-cycle checks
 		// First, try to resolve class from URI path if URI routing is enabled
-		String					uriPath						= extractUriPath( eventStruct );
-		Path					resolvedClassPath			= resolveClassFromUri( uriPath, this.lambdaRoot );
-		Path					finalLambdaPath				= resolvedClassPath != null ? resolvedClassPath : lambdaPath;
+		String						uriPath						= extractUriPath( eventStruct );
+		Path						resolvedClassPath			= resolveClassFromUri( uriPath, this.lambdaRoot );
+		final Path					finalLambdaPath				= resolvedClassPath != null ? resolvedClassPath : lambdaPath;
+		final ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( finalLambdaPath );
+		final String				resolvedLambdaPathString	= resolvedLambdaPath.absolutePath().toString();
 
-		ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( finalLambdaPath );
-		String					resolvedLambdaPathString	= resolvedLambdaPath.absolutePath().toString();
-		IBoxContext				boxContext					= new ScriptingRequestBoxContext(
+		// --- Build BoxLang execution context ---
+		ScriptingRequestBoxContext	boxContext					= new ScriptingRequestBoxContext(
 		    runtime.getRuntimeContext(),
-		    FileSystemUtil.createFileUri( resolvedLambdaPath.absolutePath().toString() )
+		    false
 		);
-
-		// Set threading Context and prep for request
-		BaseApplicationListener	listener					= boxContext.getParentOfType( RequestBoxContext.class ).getApplicationListener();
 		RequestBoxContext.setCurrent( boxContext.getParentOfType( RequestBoxContext.class ) );
-		Throwable	errorToHandle	= null;
-		Object		lambdaResult	= null;
+		// Set up request threading context and application lifecycle
+		boxContext.loadApplicationDescriptor( FileSystemUtil.createFileUri( resolvedLambdaPath.absolutePath().toString() ) );
+		RequestBoxContext		requestContext	= boxContext.getParentOfType( RequestBoxContext.class );
+		BaseApplicationListener	listener		= requestContext.getApplicationListener();
+		Throwable				errorToHandle	= null;
+		Object					lambdaResult	= null;
 
 		try {
 			// Compile + Get the Lambda Class with caching
