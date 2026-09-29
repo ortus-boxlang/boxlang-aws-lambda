@@ -550,7 +550,8 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 				if ( i > 0 ) {
 					routeKey.append( '/' );
 				}
-				routeKey.append( segments[ i ].toLowerCase() );
+				// Strip hyphens: hyphenated URI segments map to PascalCase filenames, e.g. "user-profiles" -> "UserProfiles.bx"
+				routeKey.append( segments[ i ].replace( "-", "" ).toLowerCase() );
 			}
 			Path match = this.handlerRoutes.get( routeKey.toString() );
 			if ( match != null ) {
@@ -636,12 +637,12 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	private Map<String, Path> parseManifest( Path manifestPath ) throws IOException {
 		String	content	= new String( Files.readAllBytes( manifestPath ), StandardCharsets.UTF_8 );
 		Object	parsed	= JSONUtil.fromJSON( content, true );
-		if ( !( parsed instanceof IStruct manifest ) ) {
+		if ( ! ( parsed instanceof IStruct manifest ) ) {
 			throw new IllegalArgumentException( MANIFEST_FILE + " root is not a JSON object" );
 		}
 
 		Object handlersObj = manifest.get( Key.of( "handlers" ) );
-		if ( !( handlersObj instanceof IStruct handlersStruct ) ) {
+		if ( ! ( handlersObj instanceof IStruct handlersStruct ) ) {
 			throw new IllegalArgumentException( MANIFEST_FILE + " is missing a valid 'handlers' object" );
 		}
 
@@ -679,8 +680,8 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 				String subPrefix = prefix.isEmpty() ? entry.getName().toLowerCase() : prefix + "/" + entry.getName().toLowerCase();
 				routes.putAll( scanHandlersDirectory( entry.toPath(), subPrefix ) );
 			} else if ( entry.getName().toLowerCase().endsWith( ".bx" ) ) {
-				String fileKey	= entry.getName().substring( 0, entry.getName().length() - 3 ).toLowerCase();
-				String routeKey	= prefix.isEmpty() ? fileKey : prefix + "/" + fileKey;
+				String	fileKey		= entry.getName().substring( 0, entry.getName().length() - 3 ).toLowerCase();
+				String	routeKey	= prefix.isEmpty() ? fileKey : prefix + "/" + fileKey;
 				routes.put( routeKey, entry.toPath().toAbsolutePath() );
 			}
 		}
@@ -697,8 +698,8 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @return The route key to Path map
 	 */
 	private Map<String, Path> scanLegacyRoot() {
-		Map<String, Path>	routes		= new LinkedHashMap<>();
-		File[]				entries		= Path.of( this.lambdaRoot ).toFile().listFiles();
+		Map<String, Path>	routes	= new LinkedHashMap<>();
+		File[]				entries	= Path.of( this.lambdaRoot ).toFile().listFiles();
 		if ( entries == null ) {
 			return routes;
 		}

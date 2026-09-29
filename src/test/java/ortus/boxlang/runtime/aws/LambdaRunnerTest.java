@@ -420,7 +420,7 @@ public class LambdaRunnerTest {
 		// A route listed in manifest.json resolves to its handler
 		assertThat( runner.getHandlerRoutes() ).containsKey( "products" );
 
-		var	event			= new HashMap<String, Object>();
+		var event = new HashMap<String, Object>();
 		event.put( "version", "2.0" );
 		event.put( "rawPath", "/products" );
 		var	requestContext	= new HashMap<String, Object>();
@@ -432,8 +432,8 @@ public class LambdaRunnerTest {
 
 		IStruct response = ( IStruct ) runner.handleRequest( event, context );
 		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
-		Object bodyObj = response.get( Key.of( "body" ) );
-		String bodyStr = bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
 		assertThat( bodyStr ).contains( "Manifest-routed: Products handler" );
 
 		// Decoy.bx exists on disk (in handlers/) but is NOT listed in manifest.json:
@@ -453,7 +453,7 @@ public class LambdaRunnerTest {
 		// handlers/Api/Test.bx (mixed-case directory) registers as "api/test"
 		assertThat( runner.getHandlerRoutes() ).containsKey( "api/test" );
 
-		var	event			= new HashMap<String, Object>();
+		var event = new HashMap<String, Object>();
 		event.put( "version", "2.0" );
 		event.put( "rawPath", "/api/test" );
 		var	requestContext	= new HashMap<String, Object>();
@@ -465,8 +465,8 @@ public class LambdaRunnerTest {
 
 		IStruct response = ( IStruct ) runner.handleRequest( event, context );
 		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
-		Object bodyObj = response.get( Key.of( "body" ) );
-		String bodyStr = bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
 		assertThat( bodyStr ).contains( "Nested handler: api/test" );
 	}
 
