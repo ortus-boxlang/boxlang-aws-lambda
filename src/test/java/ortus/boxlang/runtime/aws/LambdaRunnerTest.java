@@ -406,4 +406,94 @@ public class LambdaRunnerTest {
 		}
 	}
 
+	// ===================================
+	// MANIFEST / HANDLERS ROUTING TESTS
+	// ===================================
+
+	@DisplayName( "Test manifest.json is authoritative: routes what it lists, ignores what it doesn't" )
+	@Test
+	public void testManifestRoutingIsAuthoritative() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestRouting" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// A route listed in manifest.json resolves to its handler
+		assertThat( runner.getHandlerRoutes() ).containsKey( "products" );
+
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/products" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/products" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "Manifest-routed: Products handler" );
+
+		// Decoy.bx exists on disk (in handlers/) but is NOT listed in manifest.json:
+		// it must never be reachable, proving the manifest is the allowlist, not
+		// merely a hint that the handlers/ directory happens to exist.
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "decoy" );
+		assertThat( runner.resolveClassFromUri( "/decoy" ) ).isNull();
+	}
+
+	@DisplayName( "Test handlers/ directory boot-scan supports nested, case-insensitive routes" )
+	@Test
+	public void testHandlersDirectoryNestedRouting() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "handlersRouting" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// handlers/Api/Test.bx (mixed-case directory) registers as "api/test"
+		assertThat( runner.getHandlerRoutes() ).containsKey( "api/test" );
+
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/api/test" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/api/test" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "Nested handler: api/test" );
+	}
+
+	@DisplayName( "Test Application.bx and the default Lambda class are never routable targets" )
+	@Test
+	public void testReservedFilesNeverRouted() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "reservedRouting" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// Neither Application.bx nor Lambda.bx should ever appear in the routing table,
+		// even under the legacy root-scan fallback (no handlers/ or manifest.json here) -
+		// this is the exact scenario the reported vulnerability exploited:
+		// GET /application + x-bx-function: onApplicationStart
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "application" );
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "lambda" );
+		assertThat( runner.resolveClassFromUri( "/application" ) ).isNull();
+	}
+
+	@DisplayName( "Test a corrupt manifest.json falls back to the handlers/ directory scan instead of failing startup" )
+	@Test
+	public void testCorruptManifestFallsBackToDirectoryScan() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "corruptManifest" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// manifest.json is invalid JSON; the handlers/Foo.bx directory scan should still
+		// have registered "foo" as a fallback, rather than the constructor throwing
+		assertThat( runner.getHandlerRoutes() ).containsKey( "foo" );
+	}
+
 }

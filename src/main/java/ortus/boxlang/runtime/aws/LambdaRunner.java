@@ -17,8 +17,14 @@
  */
 package ortus.boxlang.runtime.aws;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
@@ -43,7 +49,7 @@ import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.AbortException;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
 import ortus.boxlang.runtime.types.exceptions.ExceptionUtil;
-import ortus.boxlang.runtime.types.util.StringUtil;
+import ortus.boxlang.runtime.types.util.JSONUtil;
 import ortus.boxlang.runtime.util.FileSystemUtil;
 import ortus.boxlang.runtime.util.ResolvedFilePath;
 
@@ -105,6 +111,20 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	protected static final Key							DEFAULT_LAMBDA_METHOD	= Key.run;
 
 	/**
+	 * The subdirectory, relative to the lambda root, where registered handler
+	 * classes live. Only files under this directory (or listed in manifest.json)
+	 * are ever eligible URI-routing targets.
+	 */
+	protected static final String						HANDLERS_DIR			= "handlers";
+
+	/**
+	 * The build-time-generated routing manifest, relative to the lambda root.
+	 * When present and valid, this is the sole source of truth for URI routing:
+	 * no filesystem scanning happens at request time or startup.
+	 */
+	protected static final String						MANIFEST_FILE			= "manifest.json";
+
+	/**
 	 * -----------------------------------------------------------------------------
 	 * Properties
 	 * -----------------------------------------------------------------------------
@@ -129,6 +149,16 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * Lambda Root where it is deployed: /var/task by convention
 	 */
 	protected String									lambdaRoot				= "";
+
+	/**
+	 * URI-routing table: route key (lowercase, "/"-joined path segments, e.g. "products"
+	 * or "api/test") to the absolute Path of the handler class. Built once, at
+	 * construction, from manifest.json when present and valid; otherwise from a
+	 * one-time boot scan of the handlers/ directory, or the legacy lambda root as a
+	 * last resort for backward compatibility. Never consulted or rebuilt from the
+	 * filesystem on a per-request basis.
+	 */
+	protected final Map<String, Path>					handlerRoutes;
 
 	/**
 	 * The BoxLang runtime
@@ -225,6 +255,12 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			System.out.println( "Lambda configured with the following path: " + this.lambdaPath );
 			System.out.println( "Lambda root directory: " + this.lambdaRoot );
 		}
+
+		// Build the URI-routing table once, at construction (cold start)
+		this.handlerRoutes = loadHandlerRoutes();
+		if ( this.debugMode ) {
+			System.out.println( "URI routing table (" + this.handlerRoutes.size() + " handler(s)): " + this.handlerRoutes.keySet() );
+		}
 	}
 
 	/**
@@ -301,7 +337,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		// Prepare an execution context and do full Application.bx life-cycle checks
 		// First, try to resolve class from URI path if URI routing is enabled
 		String						uriPath						= extractUriPath( eventStruct );
-		Path						resolvedClassPath			= resolveClassFromUri( uriPath, this.lambdaRoot );
+		Path						resolvedClassPath			= resolveClassFromUri( uriPath );
 		final Path					finalLambdaPath				= resolvedClassPath != null ? resolvedClassPath : lambdaPath;
 		final ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( finalLambdaPath );
 		final String				resolvedLambdaPathString	= resolvedLambdaPath.absolutePath().toString();
@@ -479,48 +515,217 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	}
 
 	/**
-	 * Resolve the BoxLang class path based on the URI path
-	 * Converts URI paths like "/products", "/customers/123" to class files like "Products.bx", "Customers.bx"
+	 * Resolve the BoxLang class path based on the URI path, against the routing table
+	 * built once at construction time. Never touches the filesystem: an unmapped path
+	 * simply isn't in the map, so the caller falls back to the default Lambda.bx, same
+	 * as if URI routing had found nothing.
+	 * <p>
+	 * Nested routes are supported: "/api/test" matches a route registered as "api/test".
+	 * The longest matching prefix wins, so a request to "/products/categories/electronics"
+	 * still matches a flat "products" route when no more specific route is registered -
+	 * preserving the original single-segment behavior for flat handlers.
 	 *
-	 * @param uriPath    The URI path from the request
-	 * @param lambdaRoot The root directory where BoxLang classes are located
+	 * @param uriPath The URI path from the request
 	 *
-	 * @return The resolved Path to the BoxLang class file, or null if path is invalid
+	 * @return The resolved Path to the BoxLang class file, or null if no route matches
 	 */
-	public Path resolveClassFromUri( String uriPath, String lambdaRoot ) {
+	public Path resolveClassFromUri( String uriPath ) {
 		if ( uriPath == null || uriPath.isEmpty() || uriPath.equals( "/" ) ) {
 			return null;
 		}
 
-		// Remove leading slash and extract the first segment
-		String		cleanPath		= uriPath.startsWith( "/" ) ? uriPath.substring( 1 ) : uriPath;
+		String cleanPath = uriPath.startsWith( "/" ) ? uriPath.substring( 1 ) : uriPath;
+		if ( cleanPath.endsWith( "/" ) ) {
+			cleanPath = cleanPath.substring( 0, cleanPath.length() - 1 );
+		}
 
-		// Split by "/" and take the first segment (resource name)
-		String[]	pathSegments	= cleanPath.split( "/" );
-		if ( pathSegments.length == 0 || pathSegments[ 0 ].isEmpty() ) {
+		String[] segments = cleanPath.split( "/" );
+		if ( segments.length == 0 || segments[ 0 ].isEmpty() ) {
 			return null;
 		}
 
-		// Convert first segment to PascalCase for class name
-		String	resourceName	= pathSegments[ 0 ];
-		String	className		= StringUtil.pascalCase( resourceName ) + ".bx";
-
-		// Construct the full path
-		Path	classPath		= Path.of( lambdaRoot, className );
-
-		// Check if the file exists
-		if ( classPath.toFile().exists() ) {
-			if ( this.debugMode ) {
-				System.out.println( "URI routing: " + uriPath + " -> " + classPath );
+		for ( int segmentCount = segments.length; segmentCount >= 1; segmentCount-- ) {
+			StringBuilder routeKey = new StringBuilder();
+			for ( int i = 0; i < segmentCount; i++ ) {
+				if ( i > 0 ) {
+					routeKey.append( '/' );
+				}
+				// Strip hyphens: hyphenated URI segments map to PascalCase filenames, e.g. "user-profiles" -> "UserProfiles.bx"
+				routeKey.append( segments[ i ].replace( "-", "" ).toLowerCase() );
 			}
-			return classPath.toAbsolutePath();
+			Path match = this.handlerRoutes.get( routeKey.toString() );
+			if ( match != null ) {
+				if ( this.debugMode ) {
+					System.out.println( "URI routing: " + uriPath + " -> " + match );
+				}
+				return match;
+			}
 		}
 
 		if ( this.debugMode ) {
-			System.out.println( "URI routing: Class not found for " + uriPath + " (looked for " + classPath + ")" );
+			System.out.println( "URI routing: no registered handler for " + uriPath );
+		}
+		return null;
+	}
+
+	/**
+	 * Get the URI-routing table built at construction time.
+	 *
+	 * @return An immutable-view map of route key to the handler's absolute Path
+	 */
+	public Map<String, Path> getHandlerRoutes() {
+		return this.handlerRoutes;
+	}
+
+	/**
+	 * Build the URI-routing table, once, at construction (cold start). Tries, in order:
+	 * <ol>
+	 * <li>manifest.json at the lambda root - the build-time-generated source of truth.
+	 * No filesystem scanning happens when this is present and valid.</li>
+	 * <li>A one-time scan of the handlers/ directory, if manifest.json is missing or
+	 * invalid but the directory exists. Supports nested routes.</li>
+	 * <li>A one-time scan of the lambda root itself, for backward compatibility with
+	 * deployments that predate the handlers/ convention. Application.bx and the
+	 * configured default Lambda class are always excluded as routing targets.</li>
+	 * </ol>
+	 * Tiers 2 and 3 log a warning listing every handler they registered, since silently
+	 * discovering routable classes from the filesystem is exactly the behavior this
+	 * routing table replaces - the log is there so a missing/corrupt manifest.json is
+	 * never a silent surprise.
+	 *
+	 * @return The route key to Path map
+	 */
+	private Map<String, Path> loadHandlerRoutes() {
+		Path manifestPath = Path.of( this.lambdaRoot, MANIFEST_FILE );
+		if ( manifestPath.toFile().isFile() ) {
+			try {
+				Map<String, Path> fromManifest = parseManifest( manifestPath );
+				if ( fromManifest != null ) {
+					return fromManifest;
+				}
+			} catch ( Exception e ) {
+				System.err.println(
+				    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " found at " + manifestPath
+				        + " but could not be parsed (" + e.getMessage() + "); falling back to a directory scan"
+				);
+			}
 		}
 
-		return null;
+		Path				handlersDir	= Path.of( this.lambdaRoot, HANDLERS_DIR );
+		Map<String, Path>	discovered	= handlersDir.toFile().isDirectory()
+		    ? scanHandlersDirectory( handlersDir, "" )
+		    : scanLegacyRoot();
+
+		System.out.println(
+		    "[BoxLang AWS] WARNING: no valid " + MANIFEST_FILE + " found; scanned and registered "
+		        + discovered.size() + " handler(s) at startup for auditing purposes: " + discovered.keySet()
+		);
+		return discovered;
+	}
+
+	/**
+	 * Parse manifest.json into a route key to Path map. Only the "handlers" object is
+	 * consulted; every other field is documentation for humans, not a security decision.
+	 *
+	 * @param manifestPath The absolute path to manifest.json
+	 *
+	 * @return The route key to Path map, or null if the manifest has no "handlers" object
+	 *
+	 * @throws IOException              If the manifest file can't be read
+	 * @throws IllegalArgumentException If the manifest isn't a valid JSON object
+	 */
+	private Map<String, Path> parseManifest( Path manifestPath ) throws IOException {
+		String	content	= new String( Files.readAllBytes( manifestPath ), StandardCharsets.UTF_8 );
+		Object	parsed	= JSONUtil.fromJSON( content, true );
+		if ( ! ( parsed instanceof IStruct manifest ) ) {
+			throw new IllegalArgumentException( MANIFEST_FILE + " root is not a JSON object" );
+		}
+
+		Object handlersObj = manifest.get( Key.of( "handlers" ) );
+		if ( ! ( handlersObj instanceof IStruct handlersStruct ) ) {
+			throw new IllegalArgumentException( MANIFEST_FILE + " is missing a valid 'handlers' object" );
+		}
+
+		Map<String, Path> routes = new LinkedHashMap<>();
+		for ( Key routeKey : handlersStruct.keySet() ) {
+			Object entry = handlersStruct.get( routeKey );
+			if ( entry instanceof IStruct entryStruct && entryStruct.get( Key.of( "file" ) ) != null ) {
+				String relativeFile = entryStruct.get( Key.of( "file" ) ).toString();
+				routes.put( routeKey.getName().toLowerCase(), Path.of( this.lambdaRoot, relativeFile ).toAbsolutePath() );
+			}
+		}
+		return routes;
+	}
+
+	/**
+	 * Recursively scan the handlers/ directory, building route keys from each file's
+	 * relative path. Directory segments are taken as-is, lowercased for matching;
+	 * only the leaf .bx filename is expected to be PascalCase by convention.
+	 * "handlers/Api/Test.bx" and "handlers/api/Test.bx" both register as "api/test".
+	 *
+	 * @param dir    The directory to scan
+	 * @param prefix The route-key prefix accumulated so far (empty at the top level)
+	 *
+	 * @return The route key to Path map for this subtree
+	 */
+	private Map<String, Path> scanHandlersDirectory( Path dir, String prefix ) {
+		Map<String, Path>	routes	= new LinkedHashMap<>();
+		File[]				entries	= dir.toFile().listFiles();
+		if ( entries == null ) {
+			return routes;
+		}
+
+		for ( File entry : entries ) {
+			if ( entry.isDirectory() ) {
+				String subPrefix = prefix.isEmpty() ? entry.getName().toLowerCase() : prefix + "/" + entry.getName().toLowerCase();
+				routes.putAll( scanHandlersDirectory( entry.toPath(), subPrefix ) );
+			} else if ( entry.getName().toLowerCase().endsWith( ".bx" ) ) {
+				String	fileKey		= entry.getName().substring( 0, entry.getName().length() - 3 ).toLowerCase();
+				String	routeKey	= prefix.isEmpty() ? fileKey : prefix + "/" + fileKey;
+				routes.put( routeKey, entry.toPath().toAbsolutePath() );
+			}
+		}
+		return routes;
+	}
+
+	/**
+	 * Scan the lambda root itself for routable classes - the legacy, pre-handlers/
+	 * convention, kept only for backward compatibility with deployments that haven't
+	 * adopted the handlers/ directory yet. Flat only (no nesting), and Application.bx
+	 * plus the configured default Lambda class are always excluded: neither is ever a
+	 * legitimate URI-routing target, regardless of what's on disk.
+	 *
+	 * @return The route key to Path map
+	 */
+	private Map<String, Path> scanLegacyRoot() {
+		Map<String, Path>	routes	= new LinkedHashMap<>();
+		File[]				entries	= Path.of( this.lambdaRoot ).toFile().listFiles();
+		if ( entries == null ) {
+			return routes;
+		}
+
+		Set<String> reserved = reservedFileNames();
+		for ( File entry : entries ) {
+			String lowerName = entry.getName().toLowerCase();
+			if ( entry.isFile() && lowerName.endsWith( ".bx" ) && !reserved.contains( lowerName ) ) {
+				routes.put( lowerName.substring( 0, lowerName.length() - 3 ), entry.toPath().toAbsolutePath() );
+			}
+		}
+		return routes;
+	}
+
+	/**
+	 * Filenames that must never be treated as URI-routing targets, regardless of the
+	 * routing tier in use: the application descriptor and whichever file this instance
+	 * resolves as its default Lambda class (honoring BOXLANG_LAMBDA_CLASS overrides).
+	 *
+	 * @return The set of lowercase reserved filenames
+	 */
+	private Set<String> reservedFileNames() {
+		return Set.of(
+		    "application.bx",
+		    this.lambdaPath.getFileName().toString().toLowerCase()
+		);
 	}
 
 	/**

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Convention-based URI routing and the `x-bx-function` header are by design, but they also let an unauthenticated request reach `Application.bx`'s lifecycle callbacks (and any other root-level `.bx` file). Routing is now scoped to a `handlers/` directory convention (or a build-time `manifest.json` allowlist); `Application.bx` and the default `Lambda.bx` are never eligible routing targets, even under the legacy backward-compatibility fallback for existing deployments.
+
 ## [1.17.6] - 2026-09-26
 
 ## [1.17.5] - 2026-09-18
