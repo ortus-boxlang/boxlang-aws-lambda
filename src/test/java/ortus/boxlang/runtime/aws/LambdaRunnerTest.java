@@ -507,7 +507,7 @@ public class LambdaRunnerTest {
 		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
 		Context			context		= new TestContext();
 
-		var event = new HashMap<String, Object>();
+		var				event		= new HashMap<String, Object>();
 		event.put( "version", "2.0" );
 		event.put( "rawPath", "/" );
 		var	requestContext	= new HashMap<String, Object>();
@@ -597,10 +597,10 @@ public class LambdaRunnerTest {
 
 		// With no route registered for /transport, this must fall back to the default
 		// handler (Lambda.bx), not reach Transport.bx.
-		IStruct	response	= ( IStruct ) runner.handleRequest( event, context );
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
 		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
-		Object	bodyObj		= response.get( Key.of( "body" ) );
-		String	bodyStr		= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
 		assertThat( bodyStr ).contains( "default lambda" );
 	}
 
@@ -637,7 +637,7 @@ public class LambdaRunnerTest {
 		requestContext.put( "http", httpContext );
 		event.put( "requestContext", requestContext );
 
-		IStruct	response	= ( IStruct ) runner.handleRequest( event, context );
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
 		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
 	}
 
@@ -650,7 +650,7 @@ public class LambdaRunnerTest {
 
 		// No routes are declared, so every request falls through to the default handler -
 		// which the manifest overrides to handlers/Special.bx#handle(), not Lambda.bx#run()
-		var event = new HashMap<String, Object>();
+		var				event		= new HashMap<String, Object>();
 		event.put( "version", "2.0" );
 		event.put( "rawPath", "/anything" );
 		var	requestContext	= new HashMap<String, Object>();

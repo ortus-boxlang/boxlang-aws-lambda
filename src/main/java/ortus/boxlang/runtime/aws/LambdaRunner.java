@@ -264,10 +264,10 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * Constructor: Useful for tests that need explicit control over the legacy
 	 * root-directory scan without touching process environment variables.
 	 *
-	 * @param lambdaPath      The absolute path to the Lambda.bx file
-	 * @param debugMode       Are we in debug mode or not
-	 * @param enableRootScan  Overrides {@link #ENABLE_ROOT_SCAN_ENV}; null defers to the
-	 *                        environment variable (or its default of true) as usual
+	 * @param lambdaPath     The absolute path to the Lambda.bx file
+	 * @param debugMode      Are we in debug mode or not
+	 * @param enableRootScan Overrides {@link #ENABLE_ROOT_SCAN_ENV}; null defers to the
+	 *                       environment variable (or its default of true) as usual
 	 */
 	public LambdaRunner( Path lambdaPath, Boolean debugMode, Boolean enableRootScan ) {
 		Map<String, String> env = System.getenv();
@@ -726,10 +726,10 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		// reserved set always reflects whichever file is actually serving as the default.
 		applyManifestDefaultHandler( manifest );
 
-		Set<String>			reserved	= reservedFileNames();
-		Object				reservedObj	= manifest.get( Key.of( "reserved" ) );
+		Set<String>	reserved	= reservedFileNames();
+		Object		reservedObj	= manifest.get( Key.of( "reserved" ) );
 		if ( reservedObj instanceof Array reservedArray ) {
-			Set<String>	merged	= new java.util.HashSet<>( reserved );
+			Set<String> merged = new java.util.HashSet<>( reserved );
 			for ( Object item : reservedArray ) {
 				merged.add( item.toString().toLowerCase() );
 			}
@@ -815,8 +815,8 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @return The route key to Path map for this subtree
 	 */
 	private Map<String, Path> scanHandlersDirectory( Path dir, String prefix ) {
-		Map<String, Path>	routes		= new LinkedHashMap<>();
-		File[]				entries		= dir.toFile().listFiles();
+		Map<String, Path>	routes	= new LinkedHashMap<>();
+		File[]				entries	= dir.toFile().listFiles();
 		if ( entries == null ) {
 			return routes;
 		}
