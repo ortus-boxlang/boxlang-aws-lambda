@@ -135,6 +135,12 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	protected static final String						ENABLE_ROOT_SCAN_ENV	= "BOXLANG_ENABLE_ROOT_SCAN";
 
 	/**
+	 * The lowercase filename of the application descriptor - never a valid routing
+	 * target or default handler, under any configuration.
+	 */
+	protected static final String						RESERVED_APPLICATION_BX	= "application.bx";
+
+	/**
 	 * -----------------------------------------------------------------------------
 	 * Properties
 	 * -----------------------------------------------------------------------------
@@ -664,6 +670,10 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 				if ( fromManifest != null ) {
 					return fromManifest;
 				}
+			} catch ( ReservedHandlerException e ) {
+				// A reserved-handler misconfiguration is fatal and must never be papered
+				// over by falling back to a directory scan - rethrow to abort cold start.
+				throw e;
 			} catch ( Exception e ) {
 				System.err.println(
 				    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " found at " + manifestPath
@@ -792,6 +802,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			);
 			return;
 		}
+		assertNotReservedHandler( resolvedFile, MANIFEST_FILE + " defaultHandler.file" );
 
 		this.defaultHandlerPath = resolvedFile;
 
@@ -871,10 +882,46 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @return The set of lowercase reserved filenames
 	 */
 	private Set<String> reservedFileNames() {
-		return Set.of(
-		    "application.bx",
-		    this.defaultHandlerPath.getFileName().toString().toLowerCase()
-		);
+		Set<String> reserved = new java.util.HashSet<>();
+		reserved.add( RESERVED_APPLICATION_BX );
+		reserved.add( this.defaultHandlerPath.getFileName().toString().toLowerCase() );
+		return reserved;
+	}
+
+	/**
+	 * Hard-aborts cold start if {@code candidate} resolves to a reserved filename
+	 * (currently only {@code Application.bx}). A reserved file can never serve as a
+	 * handler - default or routed - so configuring one as such is a fatal
+	 * misconfiguration: it must stop the deployment cold, not fall back silently and
+	 * leave a stale, unintended handler in effect.
+	 *
+	 * @param candidate The resolved path to check
+	 * @param source    A short description of where this path came from, used in the
+	 *                  error message (e.g. "manifest.json defaultHandler.file")
+	 *
+	 * @throws BoxRuntimeException If candidate is a reserved filename
+	 */
+	private void assertNotReservedHandler( Path candidate, String source ) {
+		String leafName = candidate.getFileName().toString().toLowerCase();
+		if ( leafName.equals( RESERVED_APPLICATION_BX ) ) {
+			throw new ReservedHandlerException(
+			    "[BoxLang AWS] FATAL: " + source + " is set to '" + candidate.getFileName()
+			        + "', which is a reserved filename and can never serve as a handler. "
+			        + "Application.bx is reserved for the BoxLang application lifecycle. Aborting cold start."
+			);
+		}
+	}
+
+	/**
+	 * Thrown when a reserved filename (currently only Application.bx) is configured as a
+	 * handler - a fatal misconfiguration distinct from ordinary manifest parse failures,
+	 * which fall back to a directory scan instead of aborting.
+	 */
+	public static class ReservedHandlerException extends BoxRuntimeException {
+
+		public ReservedHandlerException( String message ) {
+			super( message );
+		}
 	}
 
 	/**

@@ -667,4 +667,17 @@ public class LambdaRunnerTest {
 		assertThat( bodyStr ).contains( "manifest-declared default handler" );
 	}
 
+	@DisplayName( "Test manifest.json defaultHandler.file pointing at Application.bx hard-aborts cold start" )
+	@Test
+	public void testManifestDefaultHandlerReservedHardAborts() {
+		Path									testPath	= Path.of( "src", "test", "resources", "manifestDefaultHandlerReserved" );
+
+		LambdaRunner.ReservedHandlerException	thrown		= assertThrows(
+		    LambdaRunner.ReservedHandlerException.class,
+		    () -> new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true )
+		);
+		assertThat( thrown.getMessage() ).contains( "reserved" );
+		assertThat( thrown.getMessage() ).contains( "Application.bx" );
+	}
+
 }
