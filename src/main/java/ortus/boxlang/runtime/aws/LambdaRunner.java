@@ -348,8 +348,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		    false
 		);
 		RequestBoxContext.setCurrent( boxContext.getParentOfType( RequestBoxContext.class ) );
-		// Set up request threading context and application lifecycle
-		boxContext.loadApplicationDescriptor( FileSystemUtil.createFileUri( resolvedLambdaPath.absolutePath().toString() ) );
+		// Set up request threading context and application lifecycle. Application.bx always lives next to
+		// the root Lambda.bx, never inside handlers/, so we resolve it from the Lambda root - not from
+		// whichever handler URI routing selected - or a routed handler would never see onRequestStart,
+		// datasources, or any other Application.bx setting.
+		boxContext.loadApplicationDescriptor( FileSystemUtil.createFileUri( lambdaPath.toAbsolutePath().toString() ) );
 		RequestBoxContext		requestContext	= boxContext.getParentOfType( RequestBoxContext.class );
 		BaseApplicationListener	listener		= requestContext.getApplicationListener();
 		Throwable				errorToHandle	= null;

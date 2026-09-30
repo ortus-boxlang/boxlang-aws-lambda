@@ -496,4 +496,64 @@ public class LambdaRunnerTest {
 		assertThat( runner.getHandlerRoutes() ).containsKey( "foo" );
 	}
 
+	// ===================================
+	// APPLICATION.BX LIFECYCLE TESTS
+	// ===================================
+
+	@DisplayName( "Test Application.bx onRequestStart fires for the default Lambda.bx handler" )
+	@Test
+	public void testApplicationLifecycleFiresForDefaultHandler() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "applicationLifecycle" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		boolean	fired	= bodyObj instanceof IStruct body ? body.getAsBoolean( Key.of( "applicationBxFired" ) )
+		    : bodyObj.toString().contains( "\"applicationBxFired\":true" );
+		assertThat( fired ).isTrue();
+	}
+
+	@DisplayName( "Test Application.bx onRequestStart also fires when URI routing dispatches to a handlers/ class" )
+	@Test
+	public void testApplicationLifecycleFiresForRoutedHandler() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "applicationLifecycle" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// Sanity check: the request really is being routed to handlers/Products.bx, not
+		// silently falling back to the default Lambda.bx
+		assertThat( runner.getHandlerRoutes() ).containsKey( "products" );
+
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/products" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/products" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		// Before the fix, Application.bx was looked up relative to handlers/, where it
+		// doesn't exist, so onRequestStart never fired and this would be false.
+		boolean	fired	= bodyObj instanceof IStruct body ? body.getAsBoolean( Key.of( "applicationBxFired" ) )
+		    : bodyObj.toString().contains( "\"applicationBxFired\":true" );
+		assertThat( fired ).isTrue();
+	}
+
 }
