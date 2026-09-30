@@ -53,23 +53,28 @@ The runtime supports **automatic class routing** based on incoming URI paths, ma
 
 ### How It Works
 
-When a request comes in, the runtime:
+At cold start, the runtime builds a routing table once (never per request), in this order:
 
-1. **Extracts the URI path** from various event types (API Gateway, Function URLs, ALB)
-2. **Converts the first path segment** to PascalCase using BoxLang's built-in StringUtil
-3. **Looks for a matching `.bx` class** in the Lambda deployment root
-4. **Falls back to `Lambda.bx`** if no specific class is found
+1. **`manifest.json`**, if present at the deployment root and valid — used as the routing table directly, no filesystem scanning.
+2. Otherwise, **`handlers/`**, if it exists — scanned once (recursively), and only files under this directory are eligible routing targets.
+3. Otherwise, the **deployment root itself** — scanned once for backward compatibility with pre-`handlers/` deployments, gated behind `BOXLANG_ENABLE_ROOT_SCAN` (default `true`; set to `false` to disable this fallback and restrict routing to the default `Lambda.bx` handler only).
+
+`Application.bx` and the default handler (`Lambda.bx`) are **never** eligible routing targets, in any of the three tiers above — `manifest.json`'s `reserved` list and `defaultHandler` fields are enforced by the runtime itself, not just documentation.
 
 ### URI to Class Mapping Examples
 
 | Incoming URI | BoxLang Class | Description |
 |--------------|---------------|-------------|
-| `/products` | `Products.bx` | Product management endpoints |
-| `/customers` | `Customers.bx` | Customer management endpoints |
-| `/user-profiles` | `UserProfiles.bx` | Handles hyphenated URIs |
-| `/api_endpoints` | `ApiEndpoints.bx` | Handles underscored URIs |
-| `/orders/123` | `Orders.bx` | Routes based on first segment only |
-| `/unknown/path` | `Lambda.bx` | Falls back to default when class not found |
+| `/products` | `handlers/Products.bx` | Product management endpoints |
+| `/customers` | `handlers/Customers.bx` | Customer management endpoints |
+| `/user-profiles` | `handlers/UserProfiles.bx` | Handles hyphenated URIs |
+| `/api_endpoints` | `handlers/ApiEndpoints.bx` | Handles underscored URIs |
+| `/api/test` | `handlers/api/Test.bx` | Nested handler directories are supported |
+| `/unknown/path` | `Lambda.bx` | Falls back to the default handler when no route matches |
+
+### Application Lifecycle
+
+The project's root `Application.bx` fires for **every** invocation — `onApplicationStart()` once per cold start, `onRequestStart()` before each request — regardless of whether `Lambda.bx` or a routed handler under `handlers/` ends up serving it. There's a single `Application.bx` per deployment, at the project root, never under `handlers/`.
 
 ### Creating Route Classes
 
@@ -205,6 +210,7 @@ Runtime behavior is controlled via environment variables:
 - `BOXLANG_LAMBDA_DEBUGMODE` - Enable debug logging and performance metrics
 - `BOXLANG_LAMBDA_CONFIG` - Custom BoxLang configuration path (default: `/var/task/boxlang.json`)
 - `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE` - Connection pool size (default: 2)
+- `BOXLANG_ENABLE_ROOT_SCAN` - Allow the legacy deployment-root routing fallback described in URI-Based Routing above (default: `true`). Shared across every BoxLang serverless runtime (AWS/GCP/Azure).
 - `LAMBDA_TASK_ROOT` - Lambda deployment root (default: `/var/task`)
 
 ### Build System (Gradle)
