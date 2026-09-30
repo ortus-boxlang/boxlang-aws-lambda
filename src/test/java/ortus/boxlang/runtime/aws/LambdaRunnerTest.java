@@ -556,4 +556,115 @@ public class LambdaRunnerTest {
 		assertThat( fired ).isTrue();
 	}
 
+	// ===================================
+	// OPT-IN LEGACY ROOT SCAN
+	// ===================================
+
+	@DisplayName( "Test the legacy root-directory scan is on by default, matching prior releases" )
+	@Test
+	public void testRootScanEnabledByDefault() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "rootScanDisabled" );
+		// null = defer to BOXLANG_ENABLE_ROOT_SCAN, which defaults to true when unset
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true, null );
+
+		assertThat( runner.getHandlerRoutes() ).containsKey( "transport" );
+	}
+
+	@DisplayName( "Test BOXLANG_ENABLE_ROOT_SCAN=false restricts the no-manifest/no-handlers fallback to the default handler only" )
+	@Test
+	public void testRootScanCanBeDisabled() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "rootScanDisabled" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true, false );
+
+		// Transport.bx exists on disk at the root, but with root scanning disabled it must
+		// never become a routable target - this is exactly the client-reported scenario:
+		// GET /transport + x-bx-function: readRequest reaching an internal class.
+		assertThat( runner.getHandlerRoutes() ).isEmpty();
+		assertThat( runner.resolveClassFromUri( "/transport" ) ).isNull();
+		assertThat( runner.resolveClassFromUri( "/TRANSPORT" ) ).isNull();
+		assertThat( runner.resolveClassFromUri( "/trans-port" ) ).isNull();
+
+		Context	context	= new TestContext();
+		var		event	= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/transport" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/transport" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		// With no route registered for /transport, this must fall back to the default
+		// handler (Lambda.bx), not reach Transport.bx.
+		IStruct	response	= ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj		= response.get( Key.of( "body" ) );
+		String	bodyStr		= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "default lambda" );
+	}
+
+	// ===================================
+	// MANIFEST ENFORCEMENT: reserved + defaultHandler
+	// ===================================
+
+	@DisplayName( "Test manifest.json cannot route to Application.bx, Lambda.bx, or its own declared reserved files" )
+	@Test
+	public void testManifestReservedListIsEnforced() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestReservedEnforced" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// Built-in reserved names, even though the manifest explicitly lists routes for them
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "application" );
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "lambda" );
+		// The manifest's own "reserved" array names Secret.bx, even though it's neither
+		// Application.bx nor the default handler
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "secret" );
+		assertThat( runner.resolveClassFromUri( "/application" ) ).isNull();
+		assertThat( runner.resolveClassFromUri( "/secret" ) ).isNull();
+
+		// A legitimate, non-reserved route from the same manifest still works
+		assertThat( runner.getHandlerRoutes() ).containsKey( "products" );
+
+		Context	context	= new TestContext();
+		var		event	= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/products" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/products" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct	response	= ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+	}
+
+	@DisplayName( "Test manifest.json defaultHandler.file/method is respected instead of the Lambda.bx/run() convention" )
+	@Test
+	public void testManifestDefaultHandlerIsRespected() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestDefaultHandler" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// No routes are declared, so every request falls through to the default handler -
+		// which the manifest overrides to handlers/Special.bx#handle(), not Lambda.bx#run()
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/anything" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/anything" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "manifest-declared default handler" );
+	}
+
 }
