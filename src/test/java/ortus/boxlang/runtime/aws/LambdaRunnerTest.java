@@ -485,15 +485,16 @@ public class LambdaRunnerTest {
 		assertThat( runner.resolveClassFromUri( "/application" ) ).isNull();
 	}
 
-	@DisplayName( "Test a corrupt manifest.json falls back to the handlers/ directory scan instead of failing startup" )
+	@DisplayName( "Test a corrupt manifest.json restricts routing to the default handler only, instead of widening to a directory scan" )
 	@Test
-	public void testCorruptManifestFallsBackToDirectoryScan() throws IOException {
+	public void testCorruptManifestRestrictsToDefaultHandlerOnly() throws IOException {
 		Path			testPath	= Path.of( "src", "test", "resources", "corruptManifest" );
 		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
 
-		// manifest.json is invalid JSON; the handlers/Foo.bx directory scan should still
-		// have registered "foo" as a fallback, rather than the constructor throwing
-		assertThat( runner.getHandlerRoutes() ).containsKey( "foo" );
+		// manifest.json is invalid JSON, and a handlers/Foo.bx directory also exists - but a
+		// present-and-corrupt manifest.json is a build/deploy error, not license to widen
+		// routing by falling back to a directory scan. Only the default handler is reachable.
+		assertThat( runner.getHandlerRoutes() ).isEmpty();
 	}
 
 	// ===================================
@@ -665,6 +666,57 @@ public class LambdaRunnerTest {
 		Object	bodyObj	= response.get( Key.of( "body" ) );
 		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
 		assertThat( bodyStr ).contains( "manifest-declared default handler" );
+	}
+
+	@DisplayName( "Test manifest.json defaultHandler.file pointing at Application.bx hard-aborts cold start" )
+	@Test
+	public void testManifestDefaultHandlerReservedHardAborts() {
+		Path									testPath	= Path.of( "src", "test", "resources", "manifestDefaultHandlerReserved" );
+
+		LambdaRunner.ReservedHandlerException	thrown		= assertThrows(
+		    LambdaRunner.ReservedHandlerException.class,
+		    () -> new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true )
+		);
+		assertThat( thrown.getMessage() ).contains( "reserved" );
+		assertThat( thrown.getMessage() ).contains( "Application.bx" );
+	}
+
+	@DisplayName( "Test manifest.json handlers[*].file cannot escape the lambda root via ../ path traversal" )
+	@Test
+	public void testManifestHandlerPathTraversalIsRejected() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestPathTraversal", "app" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// The manifest declares "secret" -> "../outside/Secret.bx"; despite that file
+		// genuinely existing, it must never be registered as a route since it resolves
+		// outside the lambda root.
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "secret" );
+	}
+
+	@DisplayName( "Test manifest.json defaultHandler.file cannot escape the lambda root via ../ path traversal" )
+	@Test
+	public void testManifestDefaultHandlerPathTraversalIsRejected() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestDefaultHandlerTraversal", "app" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// defaultHandler.file points outside the lambda root via ../ - the conventional
+		// Lambda.bx must remain in effect rather than the out-of-root Secret.bx
+		var				event		= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/anything" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/anything" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "conventional default lambda" );
 	}
 
 }
