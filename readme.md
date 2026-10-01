@@ -76,6 +76,24 @@ At cold start, the runtime builds a routing table once (never per request), in t
 
 The project's root `Application.bx` fires for **every** invocation — `onApplicationStart()` once per cold start, `onRequestStart()` before each request — regardless of whether `Lambda.bx` or a routed handler under `handlers/` ends up serving it. There's a single `Application.bx` per deployment, at the project root, never under `handlers/`.
 
+`run()`, `onRequestEnd` and `onError` all receive the same `response` struct as their last argument. A returned value is stored in `response.body` before `onRequestEnd` runs, so a hook can wrap it, and a handled error defaults to status `500` unless `onError` sets one:
+
+```js
+class {
+
+    function onRequestEnd( target, event, context, response ) {
+        response.body = { ok: true, data: response.body }
+    }
+
+    function onError( exception, eventName, event, context, response ) {
+        response.body = { ok: false, error: exception.message }
+    }
+
+}
+```
+
+Set `BOXLANG_RESPONSE_MODE=raw` to return only `response.body`, unwrapped, instead of the default `statusCode`/`headers`/`body`/`cookies` envelope. Use it for direct invocation or an API Gateway REST API without a proxy integration. If `Application.bx` defines `onError`, the error counts as handled; rethrow from the hook to fail the invocation.
+
 ### Creating Route Classes
 
 Simply create a `.bx` file with the PascalCase name of your resource:
@@ -211,6 +229,7 @@ Runtime behavior is controlled via environment variables:
 - `BOXLANG_LAMBDA_CONFIG` - Custom BoxLang configuration path (default: `/var/task/boxlang.json`)
 - `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE` - Connection pool size (default: 2)
 - `BOXLANG_ENABLE_ROOT_SCAN` - Allow the legacy deployment-root routing fallback described in URI-Based Routing above (default: `true`). Shared across every BoxLang serverless runtime (AWS/GCP/Azure).
+- `BOXLANG_RESPONSE_MODE` - What the Lambda returns: `http` (default) is the `statusCode`/`headers`/`body`/`cookies` envelope, `raw` is only `response.body`, unwrapped. Any other value aborts cold start.
 - `LAMBDA_TASK_ROOT` - Lambda deployment root (default: `/var/task`)
 
 ### Build System (Gradle)
