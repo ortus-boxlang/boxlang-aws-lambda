@@ -35,6 +35,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import ortus.boxlang.runtime.aws.mocks.TestContext;
 import ortus.boxlang.runtime.scopes.Key;
 import ortus.boxlang.runtime.types.IStruct;
+import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
 
 public class LambdaRunnerTest {
 
@@ -717,6 +718,111 @@ public class LambdaRunnerTest {
 		Object	bodyObj	= response.get( Key.of( "body" ) );
 		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
 		assertThat( bodyStr ).contains( "conventional default lambda" );
+	}
+
+	// ===================================
+	// RESPONSE MODE + HOOK RESPONSE TESTS
+	// ===================================
+
+	private static Path fixture( String name ) {
+		return Path.of( "src", "test", "resources", name, "Lambda.bx" );
+	}
+
+	private static HashMap<String, Object> eventWith( Object... keyValues ) {
+		var event = new HashMap<String, Object>();
+		for ( int i = 0; i < keyValues.length; i += 2 ) {
+			event.put( ( String ) keyValues[ i ], keyValues[ i + 1 ] );
+		}
+		return event;
+	}
+
+	@DisplayName( "Test http mode (the default) keeps the envelope, and onRequestEnd can wrap the body via the response struct" )
+	@Test
+	public void testHttpModeEnvelopeAndOnRequestEndWrap() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseHooks" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 200 );
+		assertThat( response.containsKey( Key.headers ) ).isTrue();
+		IStruct body = ( IStruct ) response.get( Key.body );
+		assertThat( body.get( Key.of( "ok" ) ) ).isEqualTo( true );
+		assertThat( ( ( IStruct ) body.get( Key.of( "data" ) ) ).get( Key.of( "name" ) ) ).isEqualTo( "Luis" );
+	}
+
+	@DisplayName( "Test raw mode returns only the unwrapped body, with no statusCode/headers/cookies envelope" )
+	@Test
+	public void testRawModeReturnsOnlyTheBody() {
+		LambdaRunner	runner	= new LambdaRunner( fixture( "responseHooks" ), true, null, "raw" );
+		IStruct			result	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( result.get( Key.of( "ok" ) ) ).isEqualTo( true );
+		assertThat( ( ( IStruct ) result.get( Key.of( "data" ) ) ).get( Key.of( "id" ) ) ).isEqualTo( 1 );
+		assertThat( result.containsKey( Key.statusCode ) ).isFalse();
+		assertThat( result.containsKey( Key.headers ) ).isFalse();
+		assertThat( result.containsKey( Key.cookies ) ).isFalse();
+	}
+
+	@DisplayName( "Test raw mode passes through a non-struct return value untouched" )
+	@Test
+	public void testRawModeReturnsNonStructValues() {
+		LambdaRunner runner = new LambdaRunner( fixture( "responseRawPlain" ), true, null, "raw" );
+
+		assertThat( runner.handleRequest( eventWith( "text", true ), new TestContext() ) ).isEqualTo( "hello" );
+		IStruct result = ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+		assertThat( result.get( Key.of( "id" ) ) ).isEqualTo( 1 );
+		assertThat( result.containsKey( Key.statusCode ) ).isFalse();
+	}
+
+	@DisplayName( "Test a handled error in http mode defaults to 500 and the onError body, instead of a 200" )
+	@Test
+	public void testHandledErrorDefaultsTo500InHttpMode() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseHooks" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith( "fail", true ), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 500 );
+		IStruct body = ( IStruct ) response.get( Key.body );
+		assertThat( body.get( Key.of( "ok" ) ) ).isEqualTo( false );
+		assertThat( body.get( Key.of( "error" ) ) ).isEqualTo( "boom" );
+	}
+
+	@DisplayName( "Test onError can override the default 500 status through the response struct" )
+	@Test
+	public void testOnErrorCanOverrideTheStatus() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseHooks" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith( "fail", true, "status", 404 ), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 404 );
+	}
+
+	@DisplayName( "Test a handled error in raw mode returns the onError body as a successful invocation" )
+	@Test
+	public void testHandledErrorInRawMode() {
+		LambdaRunner	runner	= new LambdaRunner( fixture( "responseHooks" ), true, null, "raw" );
+		IStruct			result	= ( IStruct ) runner.handleRequest( eventWith( "fail", true ), new TestContext() );
+
+		assertThat( result.get( Key.of( "ok" ) ) ).isEqualTo( false );
+		assertThat( result.get( Key.of( "error" ) ) ).isEqualTo( "boom" );
+		assertThat( result.containsKey( Key.statusCode ) ).isFalse();
+	}
+
+	@DisplayName( "Test an unhandled error (no onError) still fails the invocation, in both modes" )
+	@Test
+	public void testUnhandledErrorStillThrows() {
+		for ( String mode : new String[] { "http", "raw" } ) {
+			LambdaRunner runner = new LambdaRunner( fixture( "responseNoOnError" ), true, null, mode );
+			assertThrows( RuntimeException.class, () -> runner.handleRequest( eventWith(), new TestContext() ) );
+		}
+	}
+
+	@DisplayName( "Test an invalid response mode hard-aborts cold start" )
+	@Test
+	public void testInvalidResponseModeHardAborts() {
+		BoxRuntimeException thrown = assertThrows(
+		    BoxRuntimeException.class,
+		    () -> new LambdaRunner( fixture( "responseHooks" ), true, null, "row" )
+		);
+		assertThat( thrown.getMessage() ).contains( "BOXLANG_RESPONSE_MODE" );
+		assertThat( thrown.getMessage() ).contains( "row" );
 	}
 
 }
