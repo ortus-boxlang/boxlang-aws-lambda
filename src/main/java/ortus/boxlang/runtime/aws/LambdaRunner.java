@@ -63,13 +63,15 @@ import ortus.boxlang.runtime.util.ResolvedFilePath;
  * <p>
  * The Lambda.bx file is expected to contain a `run` method that accepts the
  * incoming event,
- * the AWS Lambda context, and the response. The response is expected to be a
- * struct with
- * the following
+ * the AWS Lambda context, and the response. The same response struct is also
+ * passed to the Application.bx onRequestEnd and onError hooks. What the Lambda
+ * returns depends on the response mode ({@link #RESPONSE_MODE_ENV}):
  * <ul>
- * <li>statusCode: The HTTP status code</li>
- * <li>headers: A struct of headers</li>
- * <li>body: The response body</li>
+ * <li>http (default): the response struct is returned as an HTTP-style envelope,
+ * seeded with statusCode (200), headers, body and cookies</li>
+ * <li>raw: the response struct starts empty and only its body is returned,
+ * unwrapped, so direct invocations and non-proxy API Gateway integrations get
+ * exactly what the code produced</li>
  * </ul>
  * <p>
  * The Lambda.bx file is expected to be in the current directory and named
@@ -81,7 +83,7 @@ import ortus.boxlang.runtime.util.ResolvedFilePath;
  * <p>
  * The Lambda.bx file is compiled and executed using the BoxLang runtime.
  */
-public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, ?>> {
+public class LambdaRunner implements RequestHandler<Map<String, Object>, Object> {
 
 	/**
 	 * -----------------------------------------------------------------------------
@@ -141,6 +143,24 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	protected static final String						RESERVED_APPLICATION_BX	= "application.bx";
 
 	/**
+	 * The environment variable selecting the response mode. Shared, un-prefixed name
+	 * across BoxLang serverless runtimes. "http" (the default) returns the seeded
+	 * statusCode/headers/body/cookies envelope; "raw" returns only response.body,
+	 * unwrapped.
+	 */
+	protected static final String						RESPONSE_MODE_ENV		= "BOXLANG_RESPONSE_MODE";
+
+	/**
+	 * Response mode: HTTP-style envelope (default)
+	 */
+	protected static final String						RESPONSE_MODE_HTTP		= "http";
+
+	/**
+	 * Response mode: only response.body is returned, unwrapped
+	 */
+	protected static final String						RESPONSE_MODE_RAW		= "raw";
+
+	/**
 	 * -----------------------------------------------------------------------------
 	 * Properties
 	 * -----------------------------------------------------------------------------
@@ -171,6 +191,12 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * manifest.json nor handlers/ is present. See {@link #ENABLE_ROOT_SCAN_ENV}.
 	 */
 	protected boolean									enableRootScan			= true;
+
+	/**
+	 * The response mode: "http" (seeded envelope, the default) or "raw" (only
+	 * response.body, unwrapped). See {@link #RESPONSE_MODE_ENV}.
+	 */
+	protected String									responseMode			= RESPONSE_MODE_HTTP;
 
 	/**
 	 * The handler class used when no URI route matches. Defaults to {@link #lambdaPath},
@@ -276,6 +302,24 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 *                       environment variable (or its default of true) as usual
 	 */
 	public LambdaRunner( Path lambdaPath, Boolean debugMode, Boolean enableRootScan ) {
+		this( lambdaPath, debugMode, enableRootScan, null );
+	}
+
+	/**
+	 * Constructor: Useful for tests that need explicit control over the legacy
+	 * root-directory scan and the response mode without touching process
+	 * environment variables.
+	 *
+	 * @param lambdaPath     The absolute path to the Lambda.bx file
+	 * @param debugMode      Are we in debug mode or not
+	 * @param enableRootScan Overrides {@link #ENABLE_ROOT_SCAN_ENV}; null defers to the
+	 *                       environment variable (or its default of true) as usual
+	 * @param responseMode   Overrides {@link #RESPONSE_MODE_ENV} ("http" or "raw"); null
+	 *                       defers to the environment variable (or its default of http)
+	 *
+	 * @throws BoxRuntimeException If the response mode is neither "http" nor "raw"
+	 */
+	public LambdaRunner( Path lambdaPath, Boolean debugMode, Boolean enableRootScan, String responseMode ) {
 		Map<String, String> env = System.getenv();
 		this.lambdaPath	= lambdaPath;
 		this.debugMode	= debugMode;
@@ -307,9 +351,12 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			this.enableRootScan = Boolean.parseBoolean( env.get( ENABLE_ROOT_SCAN_ENV ) );
 		}
 
+		// Explicit constructor argument wins; otherwise the environment variable
+		this.responseMode		= resolveResponseMode( responseMode != null ? responseMode : env.get( RESPONSE_MODE_ENV ) );
+
 		// The default handler starts out as the conventional Lambda.bx; a manifest.json
 		// defaultHandler entry can override this during loadHandlerRoutes() below.
-		this.defaultHandlerPath = this.lambdaPath;
+		this.defaultHandlerPath	= this.lambdaPath;
 
 		if ( this.debugMode ) {
 			System.out.println( "Lambda configured with the following path: " + this.lambdaPath );
@@ -368,9 +415,10 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 *
 	 * @throws BoxRuntimeException If the Lambda.bx file is not found or does not contain a `run` method
 	 *
-	 * @return The response as a JSON string
+	 * @return In http mode (default), the response struct: statusCode, headers, body and cookies.
+	 *         In raw mode, only the response body, unwrapped (any JSON-serializable value, or null).
 	 */
-	public Map<?, ?> handleRequest( Map<String, Object> event, Context context ) {
+	public Object handleRequest( Map<String, Object> event, Context context ) {
 		LambdaLogger	logger		= context.getLogger();
 		long			startTime	= System.currentTimeMillis();
 
@@ -381,15 +429,9 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			logger.log( "Lambda remaining time: " + context.getRemainingTimeInMillis() + "ms" );
 		}
 
-		// Prep a response struct
-		IStruct						response					= Struct.of(
-		    Key.statusCode, 200,
-		    Key.headers, Struct.of(
-		        KeyDictionary.contentType, "application/json",
-		        KeyDictionary.accessControlAllowOrigin, "*" ),
-		    Key.body, "",
-		    Key.cookies, new Array()
-		);
+		// Prep a response struct: the HTTP API envelope in http mode, empty (bar a null body) in raw mode
+		final boolean				rawMode						= RESPONSE_MODE_RAW.equals( this.responseMode );
+		IStruct						response					= rawMode ? newRawResponse() : newHttpResponse();
 
 		// Convert the incoming event as a BoxLang struct first
 		IStruct						eventStruct					= Struct.fromMap( event );
@@ -434,6 +476,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			    new Object[] { eventStruct, context, response },
 			    false
 			);
+			// A returned value becomes the response body. This happens before onRequestEnd so
+			// that hook sees (and can wrap or replace) the body.
+			if ( lambdaResult != null ) {
+				response.put( Key.body, lambdaResult );
+			}
 		} catch ( AbortException e ) {
 
 			if ( this.debugMode ) {
@@ -456,7 +503,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		} finally {
 
 			try {
-				listener.onRequestEnd( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+				listener.onRequestEnd( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context, response } );
 			} catch ( Throwable e ) {
 				// Opps, an error while handling onRequestEnd
 				errorToHandle = e;
@@ -471,10 +518,16 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 				// Log it
 				logger.log( errorToHandle.getMessage(), LogLevel.ERROR );
 
+				// A handled error must not look like a success: default the http-mode status to
+				// 500 and let onError override it (and the body) through the response struct.
+				if ( !rawMode ) {
+					response.put( Key.statusCode, 500 );
+				}
+
 				try {
 					// A return of true means the error has been "handled". False means the default
 					// error handling should be used
-					if ( !listener.onError( boxContext, new Object[] { errorToHandle, "", eventStruct, context } ) ) {
+					if ( !listener.onError( boxContext, new Object[] { errorToHandle, "", eventStruct, context, response } ) ) {
 						throw errorToHandle;
 					}
 					// This is a failsafe in case the onError blows up.
@@ -487,11 +540,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			boxContext.flushBuffer( false );
 		}
 
-		// If results is not null use it as the response
-		if ( lambdaResult != null ) {
-			response.put( "body", lambdaResult );
-		}
-
 		// Log performance metrics if in debug mode
 		if ( this.debugMode ) {
 			long executionTime = System.currentTimeMillis() - startTime;
@@ -499,8 +547,61 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			logger.log( "Lambda remaining time after execution: " + context.getRemainingTimeInMillis() + "ms" );
 		}
 
-		// Lambdas marshall the Map to a JSON string
+		// Lambdas marshall the result to JSON: the whole envelope in http mode, only the
+		// unwrapped body (possibly null) in raw mode
+		return rawMode ? response.get( Key.body ) : response;
+	}
+
+	/**
+	 * The http-mode response: statusCode, headers, body and cookies, pre-seeded.
+	 *
+	 * @return The seeded response struct
+	 */
+	private static IStruct newHttpResponse() {
+		return Struct.of(
+		    Key.statusCode, 200,
+		    Key.headers, Struct.of(
+		        KeyDictionary.contentType, "application/json",
+		        KeyDictionary.accessControlAllowOrigin, "*" ),
+		    Key.body, "",
+		    Key.cookies, new Array()
+		);
+	}
+
+	/**
+	 * The raw-mode response: nothing predefined except a null body, so hooks can always
+	 * read response.body (e.g. to wrap it) even when the handler returned nothing or failed.
+	 *
+	 * @return The response struct holding only a null body
+	 */
+	private static IStruct newRawResponse() {
+		IStruct response = new Struct();
+		response.put( Key.body, null );
 		return response;
+	}
+
+	/**
+	 * Validate and normalize the requested response mode.
+	 *
+	 * @param requested The requested mode, or null/blank for the default
+	 *
+	 * @return {@link #RESPONSE_MODE_HTTP} or {@link #RESPONSE_MODE_RAW}
+	 *
+	 * @throws BoxRuntimeException If the mode is neither "http" nor "raw". A typo must fail
+	 *                             cold start rather than silently return the wrong shape.
+	 */
+	private String resolveResponseMode( String requested ) {
+		if ( requested == null || requested.isBlank() ) {
+			return RESPONSE_MODE_HTTP;
+		}
+		String mode = requested.trim().toLowerCase();
+		if ( mode.equals( RESPONSE_MODE_HTTP ) || mode.equals( RESPONSE_MODE_RAW ) ) {
+			return mode;
+		}
+		throw new BoxRuntimeException(
+		    "[BoxLang AWS] FATAL: " + RESPONSE_MODE_ENV + " must be '" + RESPONSE_MODE_HTTP + "' or '" + RESPONSE_MODE_RAW
+		        + "' but was '" + requested + "'. Aborting cold start."
+		);
 	}
 
 	/**

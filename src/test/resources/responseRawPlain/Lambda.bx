@@ -1,0 +1,9 @@
+class{
+
+	function run( event, context, response ){
+		if ( event.keyExists( "text" ) ) {
+			return "hello"
+		}
+		return { "id": 1 }
+	}
+}
