@@ -29,6 +29,48 @@ This repository contains the **core AWS Lambda Runtime** for the BoxLang languag
 
 > 💡 **For creating Lambda projects**: Use our [BoxLang AWS Lambda Template](https://github.com/ortus-boxlang/bx-aws-lambda-template) to quickly bootstrap new serverless applications.
 
+## ⚡ Quick Cheatsheet
+
+```js
+// src/main/bx/handlers/Products.bx  ->  /products
+class {
+    function run( event, context, response ) {
+        return { id: 1 }                      // becomes response.body
+    }
+    function byId( event, context, response ) { }  // header: x-bx-function: byId
+}
+```
+
+| I want to | Do this |
+|---|---|
+| Add a route | Create `.bx` files under `handlers/`: `/products` is `handlers/Products.bx`, `/user-profiles` is `handlers/UserProfiles.bx`, `/api/test` is `handlers/api/Test.bx` |
+| Handle everything else | `Lambda.bx` at the root is the default handler for unmatched routes |
+| Call another method | Send the `x-bx-function: methodName` header (public or remote methods only) |
+| Run code on every request | Root `Application.bx`: `onApplicationStart` (cold start), `onRequestStart`, `onRequestEnd`, `onError` |
+| Wrap results and errors | `onRequestEnd( target, event, context, response )` and `onError( exception, eventName, event, context, response )`: set `response.body` |
+| Set status, headers, cookies | `response.statusCode`, `response.headers`, `response.cookies` (http mode) |
+| Return exactly what your code produced (direct invoke, REST API without proxy) | `BOXLANG_RESPONSE_MODE=raw`: nothing is predefined and only `response.body` is returned, unwrapped |
+| Fail the invocation on an error | Do not define `onError`, or rethrow from it. A defined `onError` always counts as handled |
+
+**Status codes:** a handled error defaults to `500` unless `onError` sets `response.statusCode`. Errors with no `onError` fail the invocation.
+
+**Routing order (built once at cold start):** `manifest.json`, then the `handlers/` directory, then the legacy root scan (`BOXLANG_ENABLE_ROOT_SCAN`). `Application.bx` and the default handler are never routable. A corrupt `manifest.json` restricts routing to the default handler only, and its paths are confined to the root.
+
+**Hard aborts at cold start:**
+
+* `manifest.json` `defaultHandler.file` set to `Application.bx`
+* `BOXLANG_RESPONSE_MODE` set to anything other than `http` or `raw`
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `BOXLANG_LAMBDA_CLASS` | Override the default handler path | `/var/task/Lambda.bx` |
+| `BOXLANG_LAMBDA_DEBUGMODE` | Verbose logging and metrics | `false` |
+| `BOXLANG_LAMBDA_CONFIG` | Custom `boxlang.json` path | `/var/task/boxlang.json` |
+| `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE` | Database connection pool size | `2` |
+| `BOXLANG_ENABLE_ROOT_SCAN` | Allow the legacy root-directory routing fallback | `true` |
+| `BOXLANG_RESPONSE_MODE` | `http` envelope or `raw` unwrapped body | `http` |
+| `LAMBDA_TASK_ROOT` | Deployment root | `/var/task` |
+
 ## 🏗️ Architecture Overview
 
 The runtime consists of:
