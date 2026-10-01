@@ -468,7 +468,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Object>
 			Key lambdaMethod = getLambdaMethod( eventStruct, context );
 
 			// Invoke the onRequestStart method
-			listener.onRequestStart( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			listener.onRequestStart( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context, response } );
 			// Invoke the Lambda method
 			lambdaResult = lambda.dereferenceAndInvoke(
 			    boxContext,
@@ -488,7 +488,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Object>
 			}
 
 			try {
-				listener.onAbort( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+				listener.onAbort( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context, response } );
 			} catch ( Throwable ae ) {
 				// Opps, an error while handling onAbort
 				errorToHandle = ae;

@@ -825,4 +825,30 @@ public class LambdaRunnerTest {
 		assertThat( thrown.getMessage() ).contains( "row" );
 	}
 
+	@DisplayName( "Test onRequestStart receives the response struct, so it can set the status and body before the handler runs" )
+	@Test
+	public void testOnRequestStartCanWriteTheResponse() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseStartHook" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 202 );
+		assertThat( response.get( Key.body ) ).isEqualTo( "from-start" );
+	}
+
+	@DisplayName( "Test onRequestStart can write the response body in raw mode" )
+	@Test
+	public void testOnRequestStartCanWriteTheResponseInRawMode() {
+		LambdaRunner runner = new LambdaRunner( fixture( "responseStartHook" ), true, null, "raw" );
+
+		assertThat( runner.handleRequest( eventWith(), new TestContext() ) ).isEqualTo( "from-start" );
+	}
+
+	@DisplayName( "Test onAbort receives the response struct" )
+	@Test
+	public void testOnAbortReceivesTheResponse() {
+		LambdaRunner	runner	= new LambdaRunner( fixture( "responseAbortHook" ), true, null, "raw" );
+		IStruct			result	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( result.get( Key.of( "aborted" ) ) ).isEqualTo( true );
+	}
 }
