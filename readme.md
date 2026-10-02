@@ -29,6 +29,48 @@ This repository contains the **core AWS Lambda Runtime** for the BoxLang languag
 
 > 💡 **For creating Lambda projects**: Use our [BoxLang AWS Lambda Template](https://github.com/ortus-boxlang/bx-aws-lambda-template) to quickly bootstrap new serverless applications.
 
+## ⚡ Quick Cheatsheet
+
+```js
+// src/main/bx/handlers/Products.bx  ->  /products
+class {
+    function run( event, context, response ) {
+        return { id: 1 }                      // becomes response.body
+    }
+    function byId( event, context, response ) { }  // header: x-bx-function: byId
+}
+```
+
+| I want to | Do this |
+|---|---|
+| Add a route | Create `.bx` files under `handlers/`: `/products` is `handlers/Products.bx`, `/user-profiles` is `handlers/UserProfiles.bx`, `/api/test` is `handlers/api/Test.bx` |
+| Handle everything else | `Lambda.bx` at the root is the default handler for unmatched routes |
+| Call another method | Send the `x-bx-function: methodName` header (public or remote methods only) |
+| Run code on every request | Root `Application.bx`: `onApplicationStart` (cold start), `onRequestStart`, `onRequestEnd`, `onError` |
+| Read the request and change the response in a hook | Every request hook gets `event` and `response`: `onRequestStart( target, event, context, response )`, `onRequestEnd( target, event, context, response )`, `onError( exception, eventName, event, context, response )`, `onAbort( target, event, context, response )`. Set `response.body` / `response.statusCode`. `onApplicationStart` and session hooks are fired by BoxLang core and get no request data |
+| Set status, headers, cookies | `response.statusCode`, `response.headers`, `response.cookies` (http mode) |
+| Return exactly what your code produced (direct invoke, REST API without proxy) | `BOXLANG_RESPONSE_MODE=raw`: nothing is predefined and only `response.body` is returned, unwrapped |
+| Fail the invocation on an error | Do not define `onError`, or rethrow from it. A defined `onError` always counts as handled |
+
+**Status codes:** a handled error defaults to `500` unless `onError` sets `response.statusCode`. Errors with no `onError` fail the invocation.
+
+**Routing order (built once at cold start):** `manifest.json`, then the `handlers/` directory, then the legacy root scan (`BOXLANG_ENABLE_ROOT_SCAN`). `Application.bx` and the default handler are never routable. A corrupt `manifest.json` restricts routing to the default handler only, and its paths are confined to the root.
+
+**Hard aborts at cold start:**
+
+* `manifest.json` `defaultHandler.file` set to `Application.bx`
+* `BOXLANG_RESPONSE_MODE` set to anything other than `http` or `raw`
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `BOXLANG_LAMBDA_CLASS` | Override the default handler path | `/var/task/Lambda.bx` |
+| `BOXLANG_LAMBDA_DEBUGMODE` | Verbose logging and metrics | `false` |
+| `BOXLANG_LAMBDA_CONFIG` | Custom `boxlang.json` path | `/var/task/boxlang.json` |
+| `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE` | Database connection pool size | `2` |
+| `BOXLANG_ENABLE_ROOT_SCAN` | Allow the legacy root-directory routing fallback | `true` |
+| `BOXLANG_RESPONSE_MODE` | `http` envelope or `raw` unwrapped body | `http` |
+| `LAMBDA_TASK_ROOT` | Deployment root | `/var/task` |
+
 ## 🏗️ Architecture Overview
 
 The runtime consists of:
@@ -53,23 +95,46 @@ The runtime supports **automatic class routing** based on incoming URI paths, ma
 
 ### How It Works
 
-When a request comes in, the runtime:
+At cold start, the runtime builds a routing table once (never per request), in this order:
 
-1. **Extracts the URI path** from various event types (API Gateway, Function URLs, ALB)
-2. **Converts the first path segment** to PascalCase using BoxLang's built-in StringUtil
-3. **Looks for a matching `.bx` class** in the Lambda deployment root
-4. **Falls back to `Lambda.bx`** if no specific class is found
+1. **`manifest.json`**, if present at the deployment root and valid — used as the routing table directly, no filesystem scanning.
+2. Otherwise, **`handlers/`**, if it exists — scanned once (recursively), and only files under this directory are eligible routing targets.
+3. Otherwise, the **deployment root itself** — scanned once for backward compatibility with pre-`handlers/` deployments, gated behind `BOXLANG_ENABLE_ROOT_SCAN` (default `true`; set to `false` to disable this fallback and restrict routing to the default `Lambda.bx` handler only).
+
+`Application.bx` and the default handler (`Lambda.bx`) are **never** eligible routing targets, in any of the three tiers above — `manifest.json`'s `reserved` list and `defaultHandler` fields are enforced by the runtime itself, not just documentation.
 
 ### URI to Class Mapping Examples
 
 | Incoming URI | BoxLang Class | Description |
 |--------------|---------------|-------------|
-| `/products` | `Products.bx` | Product management endpoints |
-| `/customers` | `Customers.bx` | Customer management endpoints |
-| `/user-profiles` | `UserProfiles.bx` | Handles hyphenated URIs |
-| `/api_endpoints` | `ApiEndpoints.bx` | Handles underscored URIs |
-| `/orders/123` | `Orders.bx` | Routes based on first segment only |
-| `/unknown/path` | `Lambda.bx` | Falls back to default when class not found |
+| `/products` | `handlers/Products.bx` | Product management endpoints |
+| `/customers` | `handlers/Customers.bx` | Customer management endpoints |
+| `/user-profiles` | `handlers/UserProfiles.bx` | Handles hyphenated URIs |
+| `/api_endpoints` | `handlers/ApiEndpoints.bx` | Handles underscored URIs |
+| `/api/test` | `handlers/api/Test.bx` | Nested handler directories are supported |
+| `/unknown/path` | `Lambda.bx` | Falls back to the default handler when no route matches |
+
+### Application Lifecycle
+
+The project's root `Application.bx` fires for **every** invocation — `onApplicationStart()` once per cold start, `onRequestStart()` before each request — regardless of whether `Lambda.bx` or a routed handler under `handlers/` ends up serving it. There's a single `Application.bx` per deployment, at the project root, never under `handlers/`.
+
+`run()` and every request lifecycle hook (`onRequestStart`, `onRequestEnd`, `onError`, `onAbort`) receive the same `response` struct as their last argument. A returned value is stored in `response.body` before `onRequestEnd` runs, so a hook can wrap it, and a handled error defaults to status `500` unless `onError` sets one:
+
+```js
+class {
+
+    function onRequestEnd( target, event, context, response ) {
+        response.body = { ok: true, data: response.body }
+    }
+
+    function onError( exception, eventName, event, context, response ) {
+        response.body = { ok: false, error: exception.message }
+    }
+
+}
+```
+
+Set `BOXLANG_RESPONSE_MODE=raw` to return only `response.body`, unwrapped, instead of the default `statusCode`/`headers`/`body`/`cookies` envelope. Use it for direct invocation or an API Gateway REST API without a proxy integration. If `Application.bx` defines `onError`, the error counts as handled; rethrow from the hook to fail the invocation.
 
 ### Creating Route Classes
 
@@ -205,6 +270,8 @@ Runtime behavior is controlled via environment variables:
 - `BOXLANG_LAMBDA_DEBUGMODE` - Enable debug logging and performance metrics
 - `BOXLANG_LAMBDA_CONFIG` - Custom BoxLang configuration path (default: `/var/task/boxlang.json`)
 - `BOXLANG_LAMBDA_CONNECTION_POOL_SIZE` - Connection pool size (default: 2)
+- `BOXLANG_ENABLE_ROOT_SCAN` - Allow the legacy deployment-root routing fallback described in URI-Based Routing above (default: `true`). Shared across every BoxLang serverless runtime (AWS/GCP/Azure).
+- `BOXLANG_RESPONSE_MODE` - What the Lambda returns: `http` (default) is the `statusCode`/`headers`/`body`/`cookies` envelope, `raw` is only `response.body`, unwrapped. Any other value aborts cold start.
 - `LAMBDA_TASK_ROOT` - Lambda deployment root (default: `/var/task`)
 
 ### Build System (Gradle)

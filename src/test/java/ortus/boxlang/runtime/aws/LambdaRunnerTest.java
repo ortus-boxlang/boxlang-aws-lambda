@@ -35,6 +35,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import ortus.boxlang.runtime.aws.mocks.TestContext;
 import ortus.boxlang.runtime.scopes.Key;
 import ortus.boxlang.runtime.types.IStruct;
+import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
 
 public class LambdaRunnerTest {
 
@@ -406,4 +407,448 @@ public class LambdaRunnerTest {
 		}
 	}
 
+	// ===================================
+	// MANIFEST / HANDLERS ROUTING TESTS
+	// ===================================
+
+	@DisplayName( "Test manifest.json is authoritative: routes what it lists, ignores what it doesn't" )
+	@Test
+	public void testManifestRoutingIsAuthoritative() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestRouting" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// A route listed in manifest.json resolves to its handler
+		assertThat( runner.getHandlerRoutes() ).containsKey( "products" );
+
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/products" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/products" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "Manifest-routed: Products handler" );
+
+		// Decoy.bx exists on disk (in handlers/) but is NOT listed in manifest.json:
+		// it must never be reachable, proving the manifest is the allowlist, not
+		// merely a hint that the handlers/ directory happens to exist.
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "decoy" );
+		assertThat( runner.resolveClassFromUri( "/decoy" ) ).isNull();
+	}
+
+	@DisplayName( "Test handlers/ directory boot-scan supports nested, case-insensitive routes" )
+	@Test
+	public void testHandlersDirectoryNestedRouting() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "handlersRouting" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// handlers/Api/Test.bx (mixed-case directory) registers as "api/test"
+		assertThat( runner.getHandlerRoutes() ).containsKey( "api/test" );
+
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/api/test" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/api/test" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "Nested handler: api/test" );
+	}
+
+	@DisplayName( "Test Application.bx and the default Lambda class are never routable targets" )
+	@Test
+	public void testReservedFilesNeverRouted() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "reservedRouting" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// Neither Application.bx nor Lambda.bx should ever appear in the routing table,
+		// even under the legacy root-scan fallback (no handlers/ or manifest.json here) -
+		// this is the exact scenario the reported vulnerability exploited:
+		// GET /application + x-bx-function: onApplicationStart
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "application" );
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "lambda" );
+		assertThat( runner.resolveClassFromUri( "/application" ) ).isNull();
+	}
+
+	@DisplayName( "Test a corrupt manifest.json restricts routing to the default handler only, instead of widening to a directory scan" )
+	@Test
+	public void testCorruptManifestRestrictsToDefaultHandlerOnly() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "corruptManifest" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// manifest.json is invalid JSON, and a handlers/Foo.bx directory also exists - but a
+		// present-and-corrupt manifest.json is a build/deploy error, not license to widen
+		// routing by falling back to a directory scan. Only the default handler is reachable.
+		assertThat( runner.getHandlerRoutes() ).isEmpty();
+	}
+
+	// ===================================
+	// APPLICATION.BX LIFECYCLE TESTS
+	// ===================================
+
+	@DisplayName( "Test Application.bx onRequestStart fires for the default Lambda.bx handler" )
+	@Test
+	public void testApplicationLifecycleFiresForDefaultHandler() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "applicationLifecycle" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		var				event		= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		boolean	fired	= bodyObj instanceof IStruct body ? body.getAsBoolean( Key.of( "applicationBxFired" ) )
+		    : bodyObj.toString().contains( "\"applicationBxFired\":true" );
+		assertThat( fired ).isTrue();
+	}
+
+	@DisplayName( "Test Application.bx onRequestStart also fires when URI routing dispatches to a handlers/ class" )
+	@Test
+	public void testApplicationLifecycleFiresForRoutedHandler() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "applicationLifecycle" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// Sanity check: the request really is being routed to handlers/Products.bx, not
+		// silently falling back to the default Lambda.bx
+		assertThat( runner.getHandlerRoutes() ).containsKey( "products" );
+
+		var event = new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/products" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/products" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		// Before the fix, Application.bx was looked up relative to handlers/, where it
+		// doesn't exist, so onRequestStart never fired and this would be false.
+		boolean	fired	= bodyObj instanceof IStruct body ? body.getAsBoolean( Key.of( "applicationBxFired" ) )
+		    : bodyObj.toString().contains( "\"applicationBxFired\":true" );
+		assertThat( fired ).isTrue();
+	}
+
+	// ===================================
+	// OPT-IN LEGACY ROOT SCAN
+	// ===================================
+
+	@DisplayName( "Test the legacy root-directory scan is on by default, matching prior releases" )
+	@Test
+	public void testRootScanEnabledByDefault() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "rootScanDisabled" );
+		// null = defer to BOXLANG_ENABLE_ROOT_SCAN, which defaults to true when unset
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true, null );
+
+		assertThat( runner.getHandlerRoutes() ).containsKey( "transport" );
+	}
+
+	@DisplayName( "Test BOXLANG_ENABLE_ROOT_SCAN=false restricts the no-manifest/no-handlers fallback to the default handler only" )
+	@Test
+	public void testRootScanCanBeDisabled() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "rootScanDisabled" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true, false );
+
+		// Transport.bx exists on disk at the root, but with root scanning disabled it must
+		// never become a routable target - this is exactly the client-reported scenario:
+		// GET /transport + x-bx-function: readRequest reaching an internal class.
+		assertThat( runner.getHandlerRoutes() ).isEmpty();
+		assertThat( runner.resolveClassFromUri( "/transport" ) ).isNull();
+		assertThat( runner.resolveClassFromUri( "/TRANSPORT" ) ).isNull();
+		assertThat( runner.resolveClassFromUri( "/trans-port" ) ).isNull();
+
+		Context	context	= new TestContext();
+		var		event	= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/transport" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/transport" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		// With no route registered for /transport, this must fall back to the default
+		// handler (Lambda.bx), not reach Transport.bx.
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "default lambda" );
+	}
+
+	// ===================================
+	// MANIFEST ENFORCEMENT: reserved + defaultHandler
+	// ===================================
+
+	@DisplayName( "Test manifest.json cannot route to Application.bx, Lambda.bx, or its own declared reserved files" )
+	@Test
+	public void testManifestReservedListIsEnforced() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestReservedEnforced" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// Built-in reserved names, even though the manifest explicitly lists routes for them
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "application" );
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "lambda" );
+		// The manifest's own "reserved" array names Secret.bx, even though it's neither
+		// Application.bx nor the default handler
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "secret" );
+		assertThat( runner.resolveClassFromUri( "/application" ) ).isNull();
+		assertThat( runner.resolveClassFromUri( "/secret" ) ).isNull();
+
+		// A legitimate, non-reserved route from the same manifest still works
+		assertThat( runner.getHandlerRoutes() ).containsKey( "products" );
+
+		Context	context	= new TestContext();
+		var		event	= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/products" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/products" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+	}
+
+	@DisplayName( "Test manifest.json defaultHandler.file/method is respected instead of the Lambda.bx/run() convention" )
+	@Test
+	public void testManifestDefaultHandlerIsRespected() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestDefaultHandler" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// No routes are declared, so every request falls through to the default handler -
+		// which the manifest overrides to handlers/Special.bx#handle(), not Lambda.bx#run()
+		var				event		= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/anything" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/anything" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "manifest-declared default handler" );
+	}
+
+	@DisplayName( "Test manifest.json defaultHandler.file pointing at Application.bx hard-aborts cold start" )
+	@Test
+	public void testManifestDefaultHandlerReservedHardAborts() {
+		Path									testPath	= Path.of( "src", "test", "resources", "manifestDefaultHandlerReserved" );
+
+		LambdaRunner.ReservedHandlerException	thrown		= assertThrows(
+		    LambdaRunner.ReservedHandlerException.class,
+		    () -> new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true )
+		);
+		assertThat( thrown.getMessage() ).contains( "reserved" );
+		assertThat( thrown.getMessage() ).contains( "Application.bx" );
+	}
+
+	@DisplayName( "Test manifest.json handlers[*].file cannot escape the lambda root via ../ path traversal" )
+	@Test
+	public void testManifestHandlerPathTraversalIsRejected() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestPathTraversal", "app" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+
+		// The manifest declares "secret" -> "../outside/Secret.bx"; despite that file
+		// genuinely existing, it must never be registered as a route since it resolves
+		// outside the lambda root.
+		assertThat( runner.getHandlerRoutes() ).doesNotContainKey( "secret" );
+	}
+
+	@DisplayName( "Test manifest.json defaultHandler.file cannot escape the lambda root via ../ path traversal" )
+	@Test
+	public void testManifestDefaultHandlerPathTraversalIsRejected() throws IOException {
+		Path			testPath	= Path.of( "src", "test", "resources", "manifestDefaultHandlerTraversal", "app" );
+		LambdaRunner	runner		= new LambdaRunner( Path.of( testPath.toString(), "Lambda.bx" ), true );
+		Context			context		= new TestContext();
+
+		// defaultHandler.file points outside the lambda root via ../ - the conventional
+		// Lambda.bx must remain in effect rather than the out-of-root Secret.bx
+		var				event		= new HashMap<String, Object>();
+		event.put( "version", "2.0" );
+		event.put( "rawPath", "/anything" );
+		var	requestContext	= new HashMap<String, Object>();
+		var	httpContext		= new HashMap<String, Object>();
+		httpContext.put( "method", "GET" );
+		httpContext.put( "path", "/anything" );
+		requestContext.put( "http", httpContext );
+		event.put( "requestContext", requestContext );
+
+		IStruct response = ( IStruct ) runner.handleRequest( event, context );
+		assertThat( response.getAsInteger( Key.of( "statusCode" ) ) ).isEqualTo( 200 );
+		Object	bodyObj	= response.get( Key.of( "body" ) );
+		String	bodyStr	= bodyObj instanceof IStruct body ? body.getAsString( Key.of( "message" ) ) : bodyObj.toString();
+		assertThat( bodyStr ).contains( "conventional default lambda" );
+	}
+
+	// ===================================
+	// RESPONSE MODE + HOOK RESPONSE TESTS
+	// ===================================
+
+	private static Path fixture( String name ) {
+		return Path.of( "src", "test", "resources", name, "Lambda.bx" );
+	}
+
+	private static HashMap<String, Object> eventWith( Object... keyValues ) {
+		var event = new HashMap<String, Object>();
+		for ( int i = 0; i < keyValues.length; i += 2 ) {
+			event.put( ( String ) keyValues[ i ], keyValues[ i + 1 ] );
+		}
+		return event;
+	}
+
+	@DisplayName( "Test http mode (the default) keeps the envelope, and onRequestEnd can wrap the body via the response struct" )
+	@Test
+	public void testHttpModeEnvelopeAndOnRequestEndWrap() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseHooks" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 200 );
+		assertThat( response.containsKey( Key.headers ) ).isTrue();
+		IStruct body = ( IStruct ) response.get( Key.body );
+		assertThat( body.get( Key.of( "ok" ) ) ).isEqualTo( true );
+		assertThat( ( ( IStruct ) body.get( Key.of( "data" ) ) ).get( Key.of( "name" ) ) ).isEqualTo( "Luis" );
+	}
+
+	@DisplayName( "Test raw mode returns only the unwrapped body, with no statusCode/headers/cookies envelope" )
+	@Test
+	public void testRawModeReturnsOnlyTheBody() {
+		LambdaRunner	runner	= new LambdaRunner( fixture( "responseHooks" ), true, null, "raw" );
+		IStruct			result	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( result.get( Key.of( "ok" ) ) ).isEqualTo( true );
+		assertThat( ( ( IStruct ) result.get( Key.of( "data" ) ) ).get( Key.of( "id" ) ) ).isEqualTo( 1 );
+		assertThat( result.containsKey( Key.statusCode ) ).isFalse();
+		assertThat( result.containsKey( Key.headers ) ).isFalse();
+		assertThat( result.containsKey( Key.cookies ) ).isFalse();
+	}
+
+	@DisplayName( "Test raw mode passes through a non-struct return value untouched" )
+	@Test
+	public void testRawModeReturnsNonStructValues() {
+		LambdaRunner runner = new LambdaRunner( fixture( "responseRawPlain" ), true, null, "raw" );
+
+		assertThat( runner.handleRequest( eventWith( "text", true ), new TestContext() ) ).isEqualTo( "hello" );
+		IStruct result = ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+		assertThat( result.get( Key.of( "id" ) ) ).isEqualTo( 1 );
+		assertThat( result.containsKey( Key.statusCode ) ).isFalse();
+	}
+
+	@DisplayName( "Test a handled error in http mode defaults to 500 and the onError body, instead of a 200" )
+	@Test
+	public void testHandledErrorDefaultsTo500InHttpMode() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseHooks" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith( "fail", true ), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 500 );
+		IStruct body = ( IStruct ) response.get( Key.body );
+		assertThat( body.get( Key.of( "ok" ) ) ).isEqualTo( false );
+		assertThat( body.get( Key.of( "error" ) ) ).isEqualTo( "boom" );
+	}
+
+	@DisplayName( "Test onError can override the default 500 status through the response struct" )
+	@Test
+	public void testOnErrorCanOverrideTheStatus() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseHooks" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith( "fail", true, "status", 404 ), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 404 );
+	}
+
+	@DisplayName( "Test a handled error in raw mode returns the onError body as a successful invocation" )
+	@Test
+	public void testHandledErrorInRawMode() {
+		LambdaRunner	runner	= new LambdaRunner( fixture( "responseHooks" ), true, null, "raw" );
+		IStruct			result	= ( IStruct ) runner.handleRequest( eventWith( "fail", true ), new TestContext() );
+
+		assertThat( result.get( Key.of( "ok" ) ) ).isEqualTo( false );
+		assertThat( result.get( Key.of( "error" ) ) ).isEqualTo( "boom" );
+		assertThat( result.containsKey( Key.statusCode ) ).isFalse();
+	}
+
+	@DisplayName( "Test an unhandled error (no onError) still fails the invocation, in both modes" )
+	@Test
+	public void testUnhandledErrorStillThrows() {
+		for ( String mode : new String[] { "http", "raw" } ) {
+			LambdaRunner runner = new LambdaRunner( fixture( "responseNoOnError" ), true, null, mode );
+			assertThrows( RuntimeException.class, () -> runner.handleRequest( eventWith(), new TestContext() ) );
+		}
+	}
+
+	@DisplayName( "Test an invalid response mode hard-aborts cold start" )
+	@Test
+	public void testInvalidResponseModeHardAborts() {
+		BoxRuntimeException thrown = assertThrows(
+		    BoxRuntimeException.class,
+		    () -> new LambdaRunner( fixture( "responseHooks" ), true, null, "row" )
+		);
+		assertThat( thrown.getMessage() ).contains( "BOXLANG_RESPONSE_MODE" );
+		assertThat( thrown.getMessage() ).contains( "row" );
+	}
+
+	@DisplayName( "Test onRequestStart receives the response struct, so it can set the status and body before the handler runs" )
+	@Test
+	public void testOnRequestStartCanWriteTheResponse() {
+		LambdaRunner	runner		= new LambdaRunner( fixture( "responseStartHook" ), true );
+		IStruct			response	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( response.getAsInteger( Key.statusCode ) ).isEqualTo( 202 );
+		assertThat( response.get( Key.body ) ).isEqualTo( "from-start" );
+	}
+
+	@DisplayName( "Test onRequestStart can write the response body in raw mode" )
+	@Test
+	public void testOnRequestStartCanWriteTheResponseInRawMode() {
+		LambdaRunner runner = new LambdaRunner( fixture( "responseStartHook" ), true, null, "raw" );
+
+		assertThat( runner.handleRequest( eventWith(), new TestContext() ) ).isEqualTo( "from-start" );
+	}
+
+	@DisplayName( "Test onAbort receives the response struct" )
+	@Test
+	public void testOnAbortReceivesTheResponse() {
+		LambdaRunner	runner	= new LambdaRunner( fixture( "responseAbortHook" ), true, null, "raw" );
+		IStruct			result	= ( IStruct ) runner.handleRequest( eventWith(), new TestContext() );
+
+		assertThat( result.get( Key.of( "aborted" ) ) ).isEqualTo( true );
+	}
 }

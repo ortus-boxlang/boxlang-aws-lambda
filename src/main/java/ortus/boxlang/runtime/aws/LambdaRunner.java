@@ -17,8 +17,14 @@
  */
 package ortus.boxlang.runtime.aws;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
@@ -43,7 +49,7 @@ import ortus.boxlang.runtime.types.Struct;
 import ortus.boxlang.runtime.types.exceptions.AbortException;
 import ortus.boxlang.runtime.types.exceptions.BoxRuntimeException;
 import ortus.boxlang.runtime.types.exceptions.ExceptionUtil;
-import ortus.boxlang.runtime.types.util.StringUtil;
+import ortus.boxlang.runtime.types.util.JSONUtil;
 import ortus.boxlang.runtime.util.FileSystemUtil;
 import ortus.boxlang.runtime.util.ResolvedFilePath;
 
@@ -57,13 +63,15 @@ import ortus.boxlang.runtime.util.ResolvedFilePath;
  * <p>
  * The Lambda.bx file is expected to contain a `run` method that accepts the
  * incoming event,
- * the AWS Lambda context, and the response. The response is expected to be a
- * struct with
- * the following
+ * the AWS Lambda context, and the response. The same response struct is also
+ * passed to the Application.bx onRequestEnd and onError hooks. What the Lambda
+ * returns depends on the response mode ({@link #RESPONSE_MODE_ENV}):
  * <ul>
- * <li>statusCode: The HTTP status code</li>
- * <li>headers: A struct of headers</li>
- * <li>body: The response body</li>
+ * <li>http (default): the response struct is returned as an HTTP-style envelope,
+ * seeded with statusCode (200), headers, body and cookies</li>
+ * <li>raw: the response struct starts empty and only its body is returned,
+ * unwrapped, so direct invocations and non-proxy API Gateway integrations get
+ * exactly what the code produced</li>
  * </ul>
  * <p>
  * The Lambda.bx file is expected to be in the current directory and named
@@ -75,7 +83,7 @@ import ortus.boxlang.runtime.util.ResolvedFilePath;
  * <p>
  * The Lambda.bx file is compiled and executed using the BoxLang runtime.
  */
-public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, ?>> {
+public class LambdaRunner implements RequestHandler<Map<String, Object>, Object> {
 
 	/**
 	 * -----------------------------------------------------------------------------
@@ -105,6 +113,54 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	protected static final Key							DEFAULT_LAMBDA_METHOD	= Key.run;
 
 	/**
+	 * The subdirectory, relative to the lambda root, where registered handler
+	 * classes live. Only files under this directory (or listed in manifest.json)
+	 * are ever eligible URI-routing targets.
+	 */
+	protected static final String						HANDLERS_DIR			= "handlers";
+
+	/**
+	 * The build-time-generated routing manifest, relative to the lambda root.
+	 * When present and valid, this is the sole source of truth for URI routing:
+	 * no filesystem scanning happens at request time or startup.
+	 */
+	protected static final String						MANIFEST_FILE			= "manifest.json";
+
+	/**
+	 * The environment variable that opts a deployment out of the legacy, pre-handlers/
+	 * root-directory scan (used only when neither manifest.json nor handlers/ is present).
+	 * Shared, un-prefixed name across every BoxLang serverless runtime (AWS/GCP/Azure), so
+	 * one setting means the same thing everywhere. Defaults to enabled, matching prior
+	 * releases; set to "false" to restrict routing to the default handler only in that
+	 * fallback scenario.
+	 */
+	protected static final String						ENABLE_ROOT_SCAN_ENV	= "BOXLANG_ENABLE_ROOT_SCAN";
+
+	/**
+	 * The lowercase filename of the application descriptor - never a valid routing
+	 * target or default handler, under any configuration.
+	 */
+	protected static final String						RESERVED_APPLICATION_BX	= "application.bx";
+
+	/**
+	 * The environment variable selecting the response mode. Shared, un-prefixed name
+	 * across BoxLang serverless runtimes. "http" (the default) returns the seeded
+	 * statusCode/headers/body/cookies envelope; "raw" returns only response.body,
+	 * unwrapped.
+	 */
+	protected static final String						RESPONSE_MODE_ENV		= "BOXLANG_RESPONSE_MODE";
+
+	/**
+	 * Response mode: HTTP-style envelope (default)
+	 */
+	protected static final String						RESPONSE_MODE_HTTP		= "http";
+
+	/**
+	 * Response mode: only response.body is returned, unwrapped
+	 */
+	protected static final String						RESPONSE_MODE_RAW		= "raw";
+
+	/**
 	 * -----------------------------------------------------------------------------
 	 * Properties
 	 * -----------------------------------------------------------------------------
@@ -129,6 +185,41 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * Lambda Root where it is deployed: /var/task by convention
 	 */
 	protected String									lambdaRoot				= "";
+
+	/**
+	 * Whether the legacy, pre-handlers/ root-directory scan is allowed when neither
+	 * manifest.json nor handlers/ is present. See {@link #ENABLE_ROOT_SCAN_ENV}.
+	 */
+	protected boolean									enableRootScan			= true;
+
+	/**
+	 * The response mode: "http" (seeded envelope, the default) or "raw" (only
+	 * response.body, unwrapped). See {@link #RESPONSE_MODE_ENV}.
+	 */
+	protected String									responseMode			= RESPONSE_MODE_HTTP;
+
+	/**
+	 * The handler class used when no URI route matches. Defaults to {@link #lambdaPath},
+	 * but a manifest.json {@code defaultHandler.file} entry can override it.
+	 */
+	protected Path										defaultHandlerPath;
+
+	/**
+	 * The method invoked on {@link #defaultHandlerPath} when no route matches and no
+	 * {@code x-bx-function} header is present. Defaults to {@link #DEFAULT_LAMBDA_METHOD},
+	 * but a manifest.json {@code defaultHandler.method} entry can override it.
+	 */
+	protected Key										defaultHandlerMethod	= DEFAULT_LAMBDA_METHOD;
+
+	/**
+	 * URI-routing table: route key (lowercase, "/"-joined path segments, e.g. "products"
+	 * or "api/test") to the absolute Path of the handler class. Built once, at
+	 * construction, from manifest.json when present and valid; otherwise from a
+	 * one-time boot scan of the handlers/ directory, or the legacy lambda root as a
+	 * last resort for backward compatibility. Never consulted or rebuilt from the
+	 * filesystem on a per-request basis.
+	 */
+	protected final Map<String, Path>					handlerRoutes;
 
 	/**
 	 * The BoxLang runtime
@@ -198,6 +289,37 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @param debugMode  Are we in debug mode or not
 	 */
 	public LambdaRunner( Path lambdaPath, Boolean debugMode ) {
+		this( lambdaPath, debugMode, null );
+	}
+
+	/**
+	 * Constructor: Useful for tests that need explicit control over the legacy
+	 * root-directory scan without touching process environment variables.
+	 *
+	 * @param lambdaPath     The absolute path to the Lambda.bx file
+	 * @param debugMode      Are we in debug mode or not
+	 * @param enableRootScan Overrides {@link #ENABLE_ROOT_SCAN_ENV}; null defers to the
+	 *                       environment variable (or its default of true) as usual
+	 */
+	public LambdaRunner( Path lambdaPath, Boolean debugMode, Boolean enableRootScan ) {
+		this( lambdaPath, debugMode, enableRootScan, null );
+	}
+
+	/**
+	 * Constructor: Useful for tests that need explicit control over the legacy
+	 * root-directory scan and the response mode without touching process
+	 * environment variables.
+	 *
+	 * @param lambdaPath     The absolute path to the Lambda.bx file
+	 * @param debugMode      Are we in debug mode or not
+	 * @param enableRootScan Overrides {@link #ENABLE_ROOT_SCAN_ENV}; null defers to the
+	 *                       environment variable (or its default of true) as usual
+	 * @param responseMode   Overrides {@link #RESPONSE_MODE_ENV} ("http" or "raw"); null
+	 *                       defers to the environment variable (or its default of http)
+	 *
+	 * @throws BoxRuntimeException If the response mode is neither "http" nor "raw"
+	 */
+	public LambdaRunner( Path lambdaPath, Boolean debugMode, Boolean enableRootScan, String responseMode ) {
 		Map<String, String> env = System.getenv();
 		this.lambdaPath	= lambdaPath;
 		this.debugMode	= debugMode;
@@ -221,9 +343,30 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			this.debugMode = Boolean.parseBoolean( env.get( "BOXLANG_LAMBDA_DEBUGMODE" ) );
 		}
 
+		// Explicit constructor argument wins; otherwise fall back to the environment
+		// variable (default true, matching prior releases)
+		if ( enableRootScan != null ) {
+			this.enableRootScan = enableRootScan;
+		} else if ( env.get( ENABLE_ROOT_SCAN_ENV ) != null ) {
+			this.enableRootScan = Boolean.parseBoolean( env.get( ENABLE_ROOT_SCAN_ENV ) );
+		}
+
+		// Explicit constructor argument wins; otherwise the environment variable
+		this.responseMode		= resolveResponseMode( responseMode != null ? responseMode : env.get( RESPONSE_MODE_ENV ) );
+
+		// The default handler starts out as the conventional Lambda.bx; a manifest.json
+		// defaultHandler entry can override this during loadHandlerRoutes() below.
+		this.defaultHandlerPath	= this.lambdaPath;
+
 		if ( this.debugMode ) {
 			System.out.println( "Lambda configured with the following path: " + this.lambdaPath );
 			System.out.println( "Lambda root directory: " + this.lambdaRoot );
+		}
+
+		// Build the URI-routing table once, at construction (cold start)
+		this.handlerRoutes = loadHandlerRoutes();
+		if ( this.debugMode ) {
+			System.out.println( "URI routing table (" + this.handlerRoutes.size() + " handler(s)): " + this.handlerRoutes.keySet() );
 		}
 	}
 
@@ -272,9 +415,10 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 *
 	 * @throws BoxRuntimeException If the Lambda.bx file is not found or does not contain a `run` method
 	 *
-	 * @return The response as a JSON string
+	 * @return In http mode (default), the response struct: statusCode, headers, body and cookies.
+	 *         In raw mode, only the response body, unwrapped (any JSON-serializable value, or null).
 	 */
-	public Map<?, ?> handleRequest( Map<String, Object> event, Context context ) {
+	public Object handleRequest( Map<String, Object> event, Context context ) {
 		LambdaLogger	logger		= context.getLogger();
 		long			startTime	= System.currentTimeMillis();
 
@@ -285,15 +429,9 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			logger.log( "Lambda remaining time: " + context.getRemainingTimeInMillis() + "ms" );
 		}
 
-		// Prep a response struct
-		IStruct						response					= Struct.of(
-		    Key.statusCode, 200,
-		    Key.headers, Struct.of(
-		        KeyDictionary.contentType, "application/json",
-		        KeyDictionary.accessControlAllowOrigin, "*" ),
-		    Key.body, "",
-		    Key.cookies, new Array()
-		);
+		// Prep a response struct: the HTTP API envelope in http mode, empty (bar a null body) in raw mode
+		final boolean				rawMode						= RESPONSE_MODE_RAW.equals( this.responseMode );
+		IStruct						response					= rawMode ? newRawResponse() : newHttpResponse();
 
 		// Convert the incoming event as a BoxLang struct first
 		IStruct						eventStruct					= Struct.fromMap( event );
@@ -301,8 +439,8 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		// Prepare an execution context and do full Application.bx life-cycle checks
 		// First, try to resolve class from URI path if URI routing is enabled
 		String						uriPath						= extractUriPath( eventStruct );
-		Path						resolvedClassPath			= resolveClassFromUri( uriPath, this.lambdaRoot );
-		final Path					finalLambdaPath				= resolvedClassPath != null ? resolvedClassPath : lambdaPath;
+		Path						resolvedClassPath			= resolveClassFromUri( uriPath );
+		final Path					finalLambdaPath				= resolvedClassPath != null ? resolvedClassPath : this.defaultHandlerPath;
 		final ResolvedFilePath		resolvedLambdaPath			= ResolvedFilePath.of( finalLambdaPath );
 		final String				resolvedLambdaPathString	= resolvedLambdaPath.absolutePath().toString();
 
@@ -312,8 +450,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		    false
 		);
 		RequestBoxContext.setCurrent( boxContext.getParentOfType( RequestBoxContext.class ) );
-		// Set up request threading context and application lifecycle
-		boxContext.loadApplicationDescriptor( FileSystemUtil.createFileUri( resolvedLambdaPath.absolutePath().toString() ) );
+		// Set up request threading context and application lifecycle. Application.bx always lives next to
+		// the root Lambda.bx, never inside handlers/, so we resolve it from the Lambda root - not from
+		// whichever handler URI routing selected - or a routed handler would never see onRequestStart,
+		// datasources, or any other Application.bx setting.
+		boxContext.loadApplicationDescriptor( FileSystemUtil.createFileUri( lambdaPath.toAbsolutePath().toString() ) );
 		RequestBoxContext		requestContext	= boxContext.getParentOfType( RequestBoxContext.class );
 		BaseApplicationListener	listener		= requestContext.getApplicationListener();
 		Throwable				errorToHandle	= null;
@@ -327,7 +468,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			Key lambdaMethod = getLambdaMethod( eventStruct, context );
 
 			// Invoke the onRequestStart method
-			listener.onRequestStart( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+			listener.onRequestStart( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context, response } );
 			// Invoke the Lambda method
 			lambdaResult = lambda.dereferenceAndInvoke(
 			    boxContext,
@@ -335,6 +476,11 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			    new Object[] { eventStruct, context, response },
 			    false
 			);
+			// A returned value becomes the response body. This happens before onRequestEnd so
+			// that hook sees (and can wrap or replace) the body.
+			if ( lambdaResult != null ) {
+				response.put( Key.body, lambdaResult );
+			}
 		} catch ( AbortException e ) {
 
 			if ( this.debugMode ) {
@@ -342,7 +488,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			}
 
 			try {
-				listener.onAbort( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+				listener.onAbort( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context, response } );
 			} catch ( Throwable ae ) {
 				// Opps, an error while handling onAbort
 				errorToHandle = ae;
@@ -357,7 +503,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 		} finally {
 
 			try {
-				listener.onRequestEnd( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context } );
+				listener.onRequestEnd( boxContext, new Object[] { resolvedLambdaPathString, eventStruct, context, response } );
 			} catch ( Throwable e ) {
 				// Opps, an error while handling onRequestEnd
 				errorToHandle = e;
@@ -372,10 +518,16 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 				// Log it
 				logger.log( errorToHandle.getMessage(), LogLevel.ERROR );
 
+				// A handled error must not look like a success: default the http-mode status to
+				// 500 and let onError override it (and the body) through the response struct.
+				if ( !rawMode ) {
+					response.put( Key.statusCode, 500 );
+				}
+
 				try {
 					// A return of true means the error has been "handled". False means the default
 					// error handling should be used
-					if ( !listener.onError( boxContext, new Object[] { errorToHandle, "", eventStruct, context } ) ) {
+					if ( !listener.onError( boxContext, new Object[] { errorToHandle, "", eventStruct, context, response } ) ) {
 						throw errorToHandle;
 					}
 					// This is a failsafe in case the onError blows up.
@@ -388,11 +540,6 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			boxContext.flushBuffer( false );
 		}
 
-		// If results is not null use it as the response
-		if ( lambdaResult != null ) {
-			response.put( "body", lambdaResult );
-		}
-
 		// Log performance metrics if in debug mode
 		if ( this.debugMode ) {
 			long executionTime = System.currentTimeMillis() - startTime;
@@ -400,8 +547,61 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 			logger.log( "Lambda remaining time after execution: " + context.getRemainingTimeInMillis() + "ms" );
 		}
 
-		// Lambdas marshall the Map to a JSON string
+		// Lambdas marshall the result to JSON: the whole envelope in http mode, only the
+		// unwrapped body (possibly null) in raw mode
+		return rawMode ? response.get( Key.body ) : response;
+	}
+
+	/**
+	 * The http-mode response: statusCode, headers, body and cookies, pre-seeded.
+	 *
+	 * @return The seeded response struct
+	 */
+	private static IStruct newHttpResponse() {
+		return Struct.of(
+		    Key.statusCode, 200,
+		    Key.headers, Struct.of(
+		        KeyDictionary.contentType, "application/json",
+		        KeyDictionary.accessControlAllowOrigin, "*" ),
+		    Key.body, "",
+		    Key.cookies, new Array()
+		);
+	}
+
+	/**
+	 * The raw-mode response: nothing predefined except a null body, so hooks can always
+	 * read response.body (e.g. to wrap it) even when the handler returned nothing or failed.
+	 *
+	 * @return The response struct holding only a null body
+	 */
+	private static IStruct newRawResponse() {
+		IStruct response = new Struct();
+		response.put( Key.body, null );
 		return response;
+	}
+
+	/**
+	 * Validate and normalize the requested response mode.
+	 *
+	 * @param requested The requested mode, or null/blank for the default
+	 *
+	 * @return {@link #RESPONSE_MODE_HTTP} or {@link #RESPONSE_MODE_RAW}
+	 *
+	 * @throws BoxRuntimeException If the mode is neither "http" nor "raw". A typo must fail
+	 *                             cold start rather than silently return the wrong shape.
+	 */
+	private String resolveResponseMode( String requested ) {
+		if ( requested == null || requested.isBlank() ) {
+			return RESPONSE_MODE_HTTP;
+		}
+		String mode = requested.trim().toLowerCase();
+		if ( mode.equals( RESPONSE_MODE_HTTP ) || mode.equals( RESPONSE_MODE_RAW ) ) {
+			return mode;
+		}
+		throw new BoxRuntimeException(
+		    "[BoxLang AWS] FATAL: " + RESPONSE_MODE_ENV + " must be '" + RESPONSE_MODE_HTTP + "' or '" + RESPONSE_MODE_RAW
+		        + "' but was '" + requested + "'. Aborting cold start."
+		);
 	}
 
 	/**
@@ -413,7 +613,7 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	 * @return The lambda method to execute
 	 */
 	public Key getLambdaMethod( IStruct event, Context context ) {
-		Key		lambdaMethod	= DEFAULT_LAMBDA_METHOD;
+		Key		lambdaMethod	= this.defaultHandlerMethod;
 		IStruct	headers			= StructCaster.cast( event.getOrDefault( "headers", new Struct() ) );
 
 		// Check for the "bx-function" header, else use the default lambda method
@@ -479,48 +679,386 @@ public class LambdaRunner implements RequestHandler<Map<String, Object>, Map<?, 
 	}
 
 	/**
-	 * Resolve the BoxLang class path based on the URI path
-	 * Converts URI paths like "/products", "/customers/123" to class files like "Products.bx", "Customers.bx"
+	 * Resolve the BoxLang class path based on the URI path, against the routing table
+	 * built once at construction time. Never touches the filesystem: an unmapped path
+	 * simply isn't in the map, so the caller falls back to the default Lambda.bx, same
+	 * as if URI routing had found nothing.
+	 * <p>
+	 * Nested routes are supported: "/api/test" matches a route registered as "api/test".
+	 * The longest matching prefix wins, so a request to "/products/categories/electronics"
+	 * still matches a flat "products" route when no more specific route is registered -
+	 * preserving the original single-segment behavior for flat handlers.
 	 *
-	 * @param uriPath    The URI path from the request
-	 * @param lambdaRoot The root directory where BoxLang classes are located
+	 * @param uriPath The URI path from the request
 	 *
-	 * @return The resolved Path to the BoxLang class file, or null if path is invalid
+	 * @return The resolved Path to the BoxLang class file, or null if no route matches
 	 */
-	public Path resolveClassFromUri( String uriPath, String lambdaRoot ) {
+	public Path resolveClassFromUri( String uriPath ) {
 		if ( uriPath == null || uriPath.isEmpty() || uriPath.equals( "/" ) ) {
 			return null;
 		}
 
-		// Remove leading slash and extract the first segment
-		String		cleanPath		= uriPath.startsWith( "/" ) ? uriPath.substring( 1 ) : uriPath;
+		String cleanPath = uriPath.startsWith( "/" ) ? uriPath.substring( 1 ) : uriPath;
+		if ( cleanPath.endsWith( "/" ) ) {
+			cleanPath = cleanPath.substring( 0, cleanPath.length() - 1 );
+		}
 
-		// Split by "/" and take the first segment (resource name)
-		String[]	pathSegments	= cleanPath.split( "/" );
-		if ( pathSegments.length == 0 || pathSegments[ 0 ].isEmpty() ) {
+		String[] segments = cleanPath.split( "/" );
+		if ( segments.length == 0 || segments[ 0 ].isEmpty() ) {
 			return null;
 		}
 
-		// Convert first segment to PascalCase for class name
-		String	resourceName	= pathSegments[ 0 ];
-		String	className		= StringUtil.pascalCase( resourceName ) + ".bx";
-
-		// Construct the full path
-		Path	classPath		= Path.of( lambdaRoot, className );
-
-		// Check if the file exists
-		if ( classPath.toFile().exists() ) {
-			if ( this.debugMode ) {
-				System.out.println( "URI routing: " + uriPath + " -> " + classPath );
+		for ( int segmentCount = segments.length; segmentCount >= 1; segmentCount-- ) {
+			StringBuilder routeKey = new StringBuilder();
+			for ( int i = 0; i < segmentCount; i++ ) {
+				if ( i > 0 ) {
+					routeKey.append( '/' );
+				}
+				// Strip hyphens: hyphenated URI segments map to PascalCase filenames, e.g. "user-profiles" -> "UserProfiles.bx"
+				routeKey.append( segments[ i ].replace( "-", "" ).toLowerCase() );
 			}
-			return classPath.toAbsolutePath();
+			Path match = this.handlerRoutes.get( routeKey.toString() );
+			if ( match != null ) {
+				if ( this.debugMode ) {
+					System.out.println( "URI routing: " + uriPath + " -> " + match );
+				}
+				return match;
+			}
 		}
 
 		if ( this.debugMode ) {
-			System.out.println( "URI routing: Class not found for " + uriPath + " (looked for " + classPath + ")" );
+			System.out.println( "URI routing: no registered handler for " + uriPath );
+		}
+		return null;
+	}
+
+	/**
+	 * Get the URI-routing table built at construction time.
+	 *
+	 * @return An immutable-view map of route key to the handler's absolute Path
+	 */
+	public Map<String, Path> getHandlerRoutes() {
+		return this.handlerRoutes;
+	}
+
+	/**
+	 * Build the URI-routing table, once, at construction (cold start). Tries, in order:
+	 * <ol>
+	 * <li>manifest.json at the lambda root - the build-time-generated source of truth.
+	 * No filesystem scanning happens when this is present and valid. Its {@code reserved}
+	 * list and {@code defaultHandler} entry are both honored (see {@link #parseManifest}).</li>
+	 * <li>A one-time scan of the handlers/ directory, if manifest.json is missing or
+	 * invalid but the directory exists. Supports nested routes.</li>
+	 * <li>A one-time scan of the lambda root itself, for backward compatibility with
+	 * deployments that predate the handlers/ convention. Application.bx and the
+	 * configured default Lambda class are always excluded as routing targets. This tier
+	 * only runs when {@link #enableRootScan} is true (the default); set
+	 * {@link #ENABLE_ROOT_SCAN_ENV} to {@code false} to restrict this fallback scenario
+	 * to the default handler only.</li>
+	 * </ol>
+	 * Tiers 2 and 3 log a warning listing every handler they registered, since silently
+	 * discovering routable classes from the filesystem is exactly the behavior this
+	 * routing table replaces - the log is there so a missing/corrupt manifest.json is
+	 * never a silent surprise.
+	 *
+	 * @return The route key to Path map
+	 */
+	private Map<String, Path> loadHandlerRoutes() {
+		Path manifestPath = Path.of( this.lambdaRoot, MANIFEST_FILE );
+		if ( manifestPath.toFile().isFile() ) {
+			try {
+				Map<String, Path> fromManifest = parseManifest( manifestPath );
+				if ( fromManifest != null ) {
+					return fromManifest;
+				}
+			} catch ( ReservedHandlerException e ) {
+				// A reserved-handler misconfiguration is fatal and must never be papered
+				// over by falling back to a directory scan - rethrow to abort cold start.
+				throw e;
+			} catch ( Exception e ) {
+				// A present-but-corrupt manifest.json means this deployment explicitly opted
+				// into manifest-based routing and something went wrong producing it - that's a
+				// build/deploy error, not a signal to widen routing by falling back to a
+				// directory or legacy root scan. Restrict to the default handler only so the
+				// failure is safe rather than silently exposing more surface than intended.
+				System.err.println(
+				    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " found at " + manifestPath
+				        + " but could not be parsed (" + e.getMessage() + "); restricting routing to the "
+				        + "default handler only. Fix and redeploy " + MANIFEST_FILE + " to restore handlers/ routing."
+				);
+				return new LinkedHashMap<>();
+			}
 		}
 
-		return null;
+		Path				handlersDir	= Path.of( this.lambdaRoot, HANDLERS_DIR );
+		Map<String, Path>	discovered;
+		if ( handlersDir.toFile().isDirectory() ) {
+			discovered = scanHandlersDirectory( handlersDir, "" );
+		} else if ( this.enableRootScan ) {
+			discovered = scanLegacyRoot();
+		} else {
+			discovered = new LinkedHashMap<>();
+			System.out.println(
+			    "[BoxLang AWS] No " + MANIFEST_FILE + " and no " + HANDLERS_DIR
+			        + "/ directory found, and " + ENABLE_ROOT_SCAN_ENV
+			        + " is false; only the default handler is reachable. Set " + ENABLE_ROOT_SCAN_ENV
+			        + "=true to restore the legacy root-directory scan."
+			);
+			return discovered;
+		}
+
+		System.out.println(
+		    "[BoxLang AWS] WARNING: no valid " + MANIFEST_FILE + " found; scanned and registered "
+		        + discovered.size() + " handler(s) at startup for auditing purposes: " + discovered.keySet()
+		);
+		return discovered;
+	}
+
+	/**
+	 * Parse manifest.json into a route key to Path map. As a side effect, applies any
+	 * {@code defaultHandler} override (falling back to the {@code Lambda.bx}/{@code run()}
+	 * convention when absent or invalid) and enforces the {@code reserved} filename list -
+	 * combined with the runtime's own built-in reserved names - against every handler
+	 * entry, and skips any entry whose {@code file} doesn't actually exist on disk.
+	 *
+	 * @param manifestPath The absolute path to manifest.json
+	 *
+	 * @return The route key to Path map, or null if the manifest has no "handlers" object
+	 *
+	 * @throws IOException              If the manifest file can't be read
+	 * @throws IllegalArgumentException If the manifest isn't a valid JSON object
+	 */
+	private Map<String, Path> parseManifest( Path manifestPath ) throws IOException {
+		String	content	= new String( Files.readAllBytes( manifestPath ), StandardCharsets.UTF_8 );
+		Object	parsed	= JSONUtil.fromJSON( content, true );
+		if ( ! ( parsed instanceof IStruct manifest ) ) {
+			throw new IllegalArgumentException( MANIFEST_FILE + " root is not a JSON object" );
+		}
+
+		Object handlersObj = manifest.get( Key.of( "handlers" ) );
+		if ( ! ( handlersObj instanceof IStruct handlersStruct ) ) {
+			throw new IllegalArgumentException( MANIFEST_FILE + " is missing a valid 'handlers' object" );
+		}
+
+		// Honor an explicit defaultHandler override before computing reserved names, so the
+		// reserved set always reflects whichever file is actually serving as the default.
+		applyManifestDefaultHandler( manifest );
+
+		Set<String>	reserved	= reservedFileNames();
+		Object		reservedObj	= manifest.get( Key.of( "reserved" ) );
+		if ( reservedObj instanceof Array reservedArray ) {
+			Set<String> merged = new java.util.HashSet<>( reserved );
+			for ( Object item : reservedArray ) {
+				merged.add( item.toString().toLowerCase() );
+			}
+			reserved = merged;
+		}
+
+		Map<String, Path> routes = new LinkedHashMap<>();
+		for ( Key routeKey : handlersStruct.keySet() ) {
+			Object entry = handlersStruct.get( routeKey );
+			if ( entry instanceof IStruct entryStruct && entryStruct.get( Key.of( "file" ) ) != null ) {
+				String	relativeFile	= entryStruct.get( Key.of( "file" ) ).toString();
+				Path	resolvedFile	= Path.of( this.lambdaRoot, relativeFile ).toAbsolutePath().normalize();
+				String	leafName		= resolvedFile.getFileName().toString().toLowerCase();
+
+				if ( !isWithinLambdaRoot( resolvedFile ) ) {
+					System.out.println(
+					    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " maps route '" + routeKey.getName()
+					        + "' to " + relativeFile + ", which resolves outside the lambda root; ignoring this entry"
+					);
+					continue;
+				}
+				if ( reserved.contains( leafName ) ) {
+					System.out.println(
+					    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " maps route '" + routeKey.getName()
+					        + "' to reserved file " + relativeFile + "; ignoring this entry"
+					);
+					continue;
+				}
+				if ( !resolvedFile.toFile().isFile() ) {
+					System.out.println(
+					    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " maps route '" + routeKey.getName()
+					        + "' to " + relativeFile + ", which does not exist; ignoring this entry"
+					);
+					continue;
+				}
+
+				routes.put( routeKey.getName().toLowerCase(), resolvedFile );
+			}
+		}
+		return routes;
+	}
+
+	/**
+	 * Apply manifest.json's {@code defaultHandler} entry, if present and valid, to
+	 * {@link #defaultHandlerPath} and {@link #defaultHandlerMethod}. Falls back to (and
+	 * leaves untouched) the {@code Lambda.bx}/{@code run()} convention when the entry is
+	 * absent, malformed, or points to a file that doesn't exist.
+	 *
+	 * @param manifest The parsed manifest.json root struct
+	 */
+	private void applyManifestDefaultHandler( IStruct manifest ) {
+		Object defaultHandlerObj = manifest.get( Key.of( "defaultHandler" ) );
+		if ( ! ( defaultHandlerObj instanceof IStruct defaultHandlerStruct ) ) {
+			return;
+		}
+
+		Object fileObj = defaultHandlerStruct.get( Key.of( "file" ) );
+		if ( fileObj == null ) {
+			return;
+		}
+
+		Path resolvedFile = Path.of( this.lambdaRoot, fileObj.toString() ).toAbsolutePath().normalize();
+		if ( !isWithinLambdaRoot( resolvedFile ) ) {
+			System.out.println(
+			    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " defaultHandler.file " + fileObj
+			        + " resolves outside the lambda root; keeping the conventional default handler"
+			);
+			return;
+		}
+		if ( !resolvedFile.toFile().isFile() ) {
+			System.out.println(
+			    "[BoxLang AWS] WARNING: " + MANIFEST_FILE + " defaultHandler.file " + fileObj
+			        + " does not exist; keeping the conventional default handler"
+			);
+			return;
+		}
+		assertNotReservedHandler( resolvedFile, MANIFEST_FILE + " defaultHandler.file" );
+
+		this.defaultHandlerPath = resolvedFile;
+
+		Object methodObj = defaultHandlerStruct.get( Key.of( "method" ) );
+		if ( methodObj != null && !methodObj.toString().isBlank() ) {
+			this.defaultHandlerMethod = Key.of( methodObj.toString() );
+		}
+	}
+
+	/**
+	 * Recursively scan the handlers/ directory, building route keys from each file's
+	 * relative path. Directory segments are taken as-is, lowercased for matching;
+	 * only the leaf .bx filename is expected to be PascalCase by convention.
+	 * "handlers/Api/Test.bx" and "handlers/api/Test.bx" both register as "api/test".
+	 * Reserved filenames (Application.bx, the default handler) are excluded even here,
+	 * in case one is ever misplaced inside handlers/.
+	 *
+	 * @param dir    The directory to scan
+	 * @param prefix The route-key prefix accumulated so far (empty at the top level)
+	 *
+	 * @return The route key to Path map for this subtree
+	 */
+	private Map<String, Path> scanHandlersDirectory( Path dir, String prefix ) {
+		Map<String, Path>	routes	= new LinkedHashMap<>();
+		File[]				entries	= dir.toFile().listFiles();
+		if ( entries == null ) {
+			return routes;
+		}
+
+		Set<String> reserved = reservedFileNames();
+		for ( File entry : entries ) {
+			if ( entry.isDirectory() ) {
+				String subPrefix = prefix.isEmpty() ? entry.getName().toLowerCase() : prefix + "/" + entry.getName().toLowerCase();
+				routes.putAll( scanHandlersDirectory( entry.toPath(), subPrefix ) );
+			} else if ( entry.getName().toLowerCase().endsWith( ".bx" ) && !reserved.contains( entry.getName().toLowerCase() ) ) {
+				String	fileKey		= entry.getName().substring( 0, entry.getName().length() - 3 ).toLowerCase();
+				String	routeKey	= prefix.isEmpty() ? fileKey : prefix + "/" + fileKey;
+				routes.put( routeKey, entry.toPath().toAbsolutePath() );
+			}
+		}
+		return routes;
+	}
+
+	/**
+	 * Scan the lambda root itself for routable classes - the legacy, pre-handlers/
+	 * convention, kept only for backward compatibility with deployments that haven't
+	 * adopted the handlers/ directory yet, and only run when {@link #enableRootScan} is
+	 * true. Flat only (no nesting), and Application.bx plus the configured default Lambda
+	 * class are always excluded: neither is ever a legitimate URI-routing target,
+	 * regardless of what's on disk.
+	 *
+	 * @return The route key to Path map
+	 */
+	private Map<String, Path> scanLegacyRoot() {
+		Map<String, Path>	routes	= new LinkedHashMap<>();
+		File[]				entries	= Path.of( this.lambdaRoot ).toFile().listFiles();
+		if ( entries == null ) {
+			return routes;
+		}
+
+		Set<String> reserved = reservedFileNames();
+		for ( File entry : entries ) {
+			String lowerName = entry.getName().toLowerCase();
+			if ( entry.isFile() && lowerName.endsWith( ".bx" ) && !reserved.contains( lowerName ) ) {
+				routes.put( lowerName.substring( 0, lowerName.length() - 3 ), entry.toPath().toAbsolutePath() );
+			}
+		}
+		return routes;
+	}
+
+	/**
+	 * Filenames that must never be treated as URI-routing targets, regardless of the
+	 * routing tier in use: the application descriptor and whichever file this instance
+	 * currently resolves as its default handler (honoring both BOXLANG_LAMBDA_CLASS
+	 * overrides and a manifest.json defaultHandler override).
+	 *
+	 * @return The set of lowercase reserved filenames
+	 */
+	private Set<String> reservedFileNames() {
+		Set<String> reserved = new java.util.HashSet<>();
+		reserved.add( RESERVED_APPLICATION_BX );
+		reserved.add( this.defaultHandlerPath.getFileName().toString().toLowerCase() );
+		return reserved;
+	}
+
+	/**
+	 * Confines manifest.json-declared paths ({@code handlers[*].file} and
+	 * {@code defaultHandler.file}) to the lambda root, so a relative path containing
+	 * {@code ../} segments can never escape it to route to (and thus source-disclose or
+	 * execute) an arbitrary file elsewhere on the filesystem.
+	 *
+	 * @param candidate An already-normalized, absolute path to check
+	 *
+	 * @return true if candidate is the lambda root itself or a descendant of it
+	 */
+	private boolean isWithinLambdaRoot( Path candidate ) {
+		Path root = Path.of( this.lambdaRoot ).toAbsolutePath().normalize();
+		return candidate.equals( root ) || candidate.startsWith( root );
+	}
+
+	/**
+	 * Hard-aborts cold start if {@code candidate} resolves to a reserved filename
+	 * (currently only {@code Application.bx}). A reserved file can never serve as a
+	 * handler - default or routed - so configuring one as such is a fatal
+	 * misconfiguration: it must stop the deployment cold, not fall back silently and
+	 * leave a stale, unintended handler in effect.
+	 *
+	 * @param candidate The resolved path to check
+	 * @param source    A short description of where this path came from, used in the
+	 *                  error message (e.g. "manifest.json defaultHandler.file")
+	 *
+	 * @throws BoxRuntimeException If candidate is a reserved filename
+	 */
+	private void assertNotReservedHandler( Path candidate, String source ) {
+		String leafName = candidate.getFileName().toString().toLowerCase();
+		if ( leafName.equals( RESERVED_APPLICATION_BX ) ) {
+			throw new ReservedHandlerException(
+			    "[BoxLang AWS] FATAL: " + source + " is set to '" + candidate.getFileName()
+			        + "', which is a reserved filename and can never serve as a handler. "
+			        + "Application.bx is reserved for the BoxLang application lifecycle. Aborting cold start."
+			);
+		}
+	}
+
+	/**
+	 * Thrown when a reserved filename (currently only Application.bx) is configured as a
+	 * handler - a fatal misconfiguration distinct from ordinary manifest parse failures,
+	 * which fall back to a directory scan instead of aborting.
+	 */
+	public static class ReservedHandlerException extends BoxRuntimeException {
+
+		public ReservedHandlerException( String message ) {
+			super( message );
+		}
 	}
 
 	/**
