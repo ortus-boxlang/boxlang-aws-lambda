@@ -636,6 +636,18 @@ Please star us if this runtime helps you build amazing serverless applications w
 [![GitHub Stars](https://img.shields.io/github/stars/ortus-boxlang/boxlang-aws-lambda?style=social)](
 
 
+## Software Bill of Materials (SBOM)
+
+Every release publishes a [CycloneDX](https://cyclonedx.org/) SBOM that lists the runtime dependencies of this artifact.
+
+- **Files:** `boxlang-aws-lambda-<version>.cdx.json` and `boxlang-aws-lambda-<version>.cdx.json.sha256`
+- **Where:** next to the other release artifacts at `https://downloads.ortussolutions.com/ortussolutions/boxlang-runtimes/boxlang-aws-lambda/<version>/`, and attached to the GitHub release.
+- **Verify:** `sha256sum -c boxlang-aws-lambda-<version>.cdx.json.sha256`
+- **Scan:** `grype sbom:boxlang-aws-lambda-<version>.cdx.json`
+- **Scope:** runtime dependencies only (no test dependencies), generated from the resolved dependency graph and not from the shaded jar. The bundled BoxLang jar is not listed, so audit this artifact together with the BoxLang SBOM for the matching release.
+
+See the [SBOM documentation](https://boxlang.ortusbooks.com/getting-started/configuration/security#software-bill-of-materials-sbom) for details.
+
 ## Ortus Sponsors
 
 BoxLang is a professional open-source project and it is completely funded by the [community](https://patreon.com/ortussolutions) and [Ortus Solutions, Corp](https://www.ortussolutions.com). Ortus Patreons get many benefits like a cfcasts account, a FORGEBOX Pro account and so much more. If you are interested in becoming a sponsor, please visit our patronage page: [https://patreon.com/ortussolutions](https://patreon.com/ortussolutions)
